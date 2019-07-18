@@ -307,14 +307,67 @@ void Standard::update_transition_state()
 	_mc_throttle_weight = mc_weight;
 }
 
+static const float Sref = 1; // TODO
+static const float rho = 1.225f;
+
+static float CL(float alpha)
+{
+	const float CL0 = 1; // TODO
+	const float CLalpha = 1; // TODO
+	return (CL0 + CLalpha*alpha);
+}
+static float lift(float alpha, float V)
+{
+	return 0.5f*rho*V*V*Sref*CL(alpha);
+}
+
+static float drag(float alpha, float V)
+{
+	const float CD0 = 1; // TODO
+	const float k_CL = 1; // TODO
+	float CL_ = CL(alpha);
+	float CD = CD0 + k_CL*CL_*CL_;
+	return 0.5f*rho*V*V*Sref*CD;
+}
+
+static Quatf slerp(const Quatf &q0, const Quatf &q1, float t)
+{
+	// translated from Eigen
+	// https://github.com/eigenteam/eigen-git-mirror/blob/6d062f0584523e3e282cf9f62ae260e0d961f3dc/Eigen/src/Geometry/Quaternion.h#L746
+	const float eps = 1e-5f;
+	const float one = 1.0f - eps;
+	float d = q0.dot(q1);
+	float absD = fabsf(d);
+
+	float scale0;
+	float scale1;
+
+  	if(absD>=one)
+  	{
+    	scale0 = 1.0f - t;
+    	scale1 = t;
+  	}
+  	else
+  	{
+    	// theta is the angle between the 2 quaternions
+    	float theta = acosf(absD);
+    	float sinTheta = sinf(theta);
+
+    	scale0 = sin( ( 1.0f - t ) * theta) / sinTheta;
+    	scale1 = sin( ( t * theta) ) / sinTheta;
+  	}
+  	if(d<0) scale1 = -scale1;
+
+  	return scale0 * q0 + scale1 * q1;
+}
+
 void Standard::update_mc_state()
 {
 	VtolType::update_mc_state();
 
-	// if the thrust scale param is zero or the drone is on manual mode,
+	// if the thrust scale param is zero,
 	// then the pusher-for-pitch strategy is disabled and we can return
-	if (_params_standard.forward_thrust_scale < FLT_EPSILON ||
-	    !_v_control_mode->flag_control_position_enabled) {
+	if (_params_standard.forward_thrust_scale < FLT_EPSILON) {
 		return;
 	}
 
@@ -336,49 +389,83 @@ void Standard::update_mc_state()
 	const Eulerf euler_sp(R_sp);
 	_pusher_throttle = 0.0f;
 
-	// direction of desired body z axis represented in earth frame
-	Vector3f body_z_sp(R_sp(0, 2), R_sp(1, 2), R_sp(2, 2));
+	// direction of reference body z axis represented in earth frame
+	const Vector3f body_z_sp(R_sp(0, 2), R_sp(1, 2), R_sp(2, 2));
+	// direction of the current body x axis in earth frame
+	const Vector3f x_body_in_earth(R_sp(0, 0), R_sp(1, 0), R_sp(2, 0));
+	const Vector3f z_body_in_earth(R_sp(0, 2), R_sp(1, 2), R_sp(2, 2));
 
-	// rotate desired body z axis into new frame which is rotated in z by the current
-	// heading of the vehicle. we refer to this as the heading frame.
-	Dcmf R_yaw = Eulerf(0.0f, 0.0f, -euler(2));
-	body_z_sp = R_yaw * body_z_sp;
-	body_z_sp.normalize();
+	const float Vinf = _airspeed->indicated_airspeed_m_s;
+	const Vector3f airspeed_earth_frame(0, Vinf, 0); // TODO check vicon frame in PX4
 
-	// calculate the desired pitch seen in the heading frame
-	// this value corresponds to the amount the vehicle would try to pitch forward
-	float pitch_forward = atan2f(body_z_sp(0), body_z_sp(2));
+	const float aoa_max = M_PI*10/180; //TODO
+	const float hover_throttle = 0.5f; //TODO reuse parameter
+	const float m = 1.2; //TODO
+	const float g = 9.81f;
 
-	// only allow pitching forward up to threshold, the rest of the desired
-	// forward acceleration will be compensated by the pusher
-	if (pitch_forward < -_params_standard.down_pitch_max) {
-		// desired roll angle in heading frame stays the same
-		float roll_new = -asinf(body_z_sp(1));
+	// reference force includes force to cancel gravity (in paper f_r does not include gravity)
+	// (_v_att_sp->thrust_body[2] is negative)
+	const Vector3f f_r = body_z_sp * _v_att_sp->thrust_body[2]; // reference force in earth frame
 
-		_pusher_throttle = (sinf(-pitch_forward) - sinf(_params_standard.down_pitch_max))
-				   * _params_standard.forward_thrust_scale;
+	// Low speed force allocation
+	const Quatf att_sp_low_speed = _v_att_sp->q_d; // just use desired MC attitude
 
-		// return the vehicle to level position
-		float pitch_new = 0.0f;
+	// High speed force allocation
+	const Vector3f x_wind_in_earth = airspeed_earth_frame.normalized();
+	float f_r_parallel = x_wind_in_earth*f_r;
+	const Vector3f f_r_parallel_v = f_r_parallel * x_wind_in_earth;
+	const Vector3f f_r_perpendicular_v = f_r - f_r_parallel_v;
+	const Vector3f y_wind_in_earth = (x_wind_in_earth.cross(f_r)).normalized();
+	const Vector3f z_wind_in_earth = x_wind_in_earth.cross(y_wind_in_earth);
 
-		// create corrected desired body z axis in heading frame
-		const Dcmf R_tmp = Eulerf(roll_new, pitch_new, 0.0f);
-		Vector3f tilt_new(R_tmp(0, 2), R_tmp(1, 2), R_tmp(2, 2));
-
-		// rotate the vector into a new frame which is rotated in z by the desired heading
-		// with respect to the earh frame.
-		const float yaw_error = wrap_pi(euler_sp(2) - euler(2));
-		const Dcmf R_yaw_correction = Eulerf(0.0f, 0.0f, -yaw_error);
-		tilt_new = R_yaw_correction * tilt_new;
-
-		// now extract roll and pitch setpoints
-		_v_att_sp->pitch_body = atan2f(tilt_new(0), tilt_new(2));
-		_v_att_sp->roll_body = -asinf(tilt_new(1));
-
-		const Quatf q_sp(Eulerf(_v_att_sp->roll_body, _v_att_sp->pitch_body, euler_sp(2)));
-		q_sp.copyTo(_v_att_sp->q_d);
-		_v_att_sp->q_d_valid = true;
+	// definition of scalar f_r_perpendicular is along z_w which is pointing away
+	// from f_r, so f_r_perpendicular is always negative
+	float f_r_perpendicular = -f_r_perpendicular_v.norm();
+	float f_L_max_force = lift(aoa_max, Vinf);
+	float f_L_max = hover_throttle * f_L_max_force/(m*g);
+	float alpha_d;
+	if (- f_r_perpendicular > f_L_max) {
+		alpha_d = aoa_max; // limit wing to max lift
+	} else {
+		float f_L_zero_force = lift(0, Vinf);
+		float f_L_zero = hover_throttle * f_L_zero_force/(m*g);
+		alpha_d = (-f_r_perpendicular - f_L_zero)/(f_L_max-f_L_zero) * aoa_max; // linear interpolation
 	}
+	const Eulerf alpha_pitch_up(0, alpha_d, 0);
+	const Dcmf body_to_wind(alpha_pitch_up);
+	Dcmf wind_to_earth;
+	wind_to_earth.setCol(0, x_wind_in_earth);
+	wind_to_earth.setCol(1, y_wind_in_earth);
+	wind_to_earth.setCol(2, z_wind_in_earth);
+	const Quatf att_sp_high_speed(wind_to_earth * body_to_wind); // body to earth quaternion
+	// TODO if airspeed_earth_frame < eps || f_r_perpendicular < eps, set att to current
+
+	// _params->airspeed_blend is the transition to prioritizing fixed wing lift
+	// gamma [0...1] interpolates from low to high speed
+	float gamma = 0.5f + 0.5f*tanhf(Vinf - _params->airspeed_blend);
+	const Quatf att_sp = slerp(att_sp_low_speed, att_sp_high_speed, gamma);
+
+
+	float aoa = asinf(x_wind_in_earth * x_body_in_earth);
+	// normalized lift/drag force (corresponds to a MC throttle point)
+	float f_lift = hover_throttle * lift(aoa, Vinf)/(m*g);
+	float f_drag = hover_throttle * drag(aoa, Vinf)/(m*g);
+	const Vector3f f_aero = - f_lift*z_wind_in_earth - f_drag*x_wind_in_earth;
+	const Vector3f f_th = f_r - f_aero;
+	// thruster force in body z (negative)
+	float fz = z_body_in_earth * f_th;
+	// thruster force in body x (positive)
+	float fx = x_body_in_earth * f_th;
+
+
+	// _params_standard.forward_thrust_scale converts MC throttle to forward throttle
+	// should be the ratio of max_lifter_force / max_thruster_force
+	_pusher_throttle = fx * _params_standard.forward_thrust_scale;
+	att_sp.copyTo(_v_att_sp->q_d);
+	_v_att_sp->q_d_valid = true;
+	_v_att_sp->thrust_body[0] = 0;
+	_v_att_sp->thrust_body[1] = 0;
+	_v_att_sp->thrust_body[2] = fz; // this is for multirotor thrust
 
 	_pusher_throttle = _pusher_throttle < 0.0f ? 0.0f : _pusher_throttle;
 }
@@ -448,7 +535,9 @@ void Standard::fill_actuator_outputs()
 			_actuators_out_1->control[actuator_controls_s::INDEX_PITCH] =
 				_actuators_fw_in->control[actuator_controls_s::INDEX_PITCH];
 
-			_actuators_out_1->control[actuator_controls_s::INDEX_YAW] = 0.0f;
+			_actuators_out_1->control[actuator_controls_s::INDEX_YAW] =
+				_actuators_fw_in->control[actuator_controls_s::INDEX_YAW];
+
 			_actuators_out_1->control[actuator_controls_s::INDEX_AIRBRAKES] = 0.0f;
 		}
 	}
