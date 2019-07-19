@@ -399,7 +399,7 @@ void Standard::update_mc_state()
 	const Vector3f airspeed_earth_frame(0, Vinf, 0); // TODO check vicon frame in PX4
 
 	const float aoa_max = M_PI*3.8/180; // (0.8-0.5322)/3.9859/pi*180
-	const float hover_throttle = 0.5f; // TODO reuse parameter
+	const float hover_throttle = _params->mpc_thr_hover;
 	const float m = 1.7f;
 	const float g = 9.81f;
 
@@ -437,8 +437,10 @@ void Standard::update_mc_state()
 	wind_to_earth.setCol(0, x_wind_in_earth);
 	wind_to_earth.setCol(1, y_wind_in_earth);
 	wind_to_earth.setCol(2, z_wind_in_earth);
-	const Quatf att_sp_high_speed(wind_to_earth * body_to_wind); // body to earth quaternion
-	// TODO if airspeed_earth_frame < eps || f_r_perpendicular < eps, set att to current
+	Quatf att_sp_high_speed(wind_to_earth * body_to_wind); // body to earth quaternion
+	if (airspeed_earth_frame.norm() < 0.1f || -f_r_perpendicular < 0.001f) {
+		att_sp_high_speed = _v_att->q; // set target to current attitude
+	}
 
 	// _params->airspeed_blend is the transition to prioritizing fixed wing lift
 	// gamma [0...1] interpolates from low to high speed

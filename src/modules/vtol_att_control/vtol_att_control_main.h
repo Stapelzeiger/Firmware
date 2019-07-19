@@ -197,6 +197,7 @@ private:
 		param_t diff_thrust;
 		param_t diff_thrust_scale;
 		param_t v19_vt_rolldir;
+		param_t mpc_thr_hover;
 	} _params_handles{};
 
 	/* for multicopters it is usual to have a non-zero idle speed of the engines

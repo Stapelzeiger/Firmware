@@ -71,6 +71,7 @@ struct Params {
 	int32_t diff_thrust;
 	float diff_thrust_scale;
 	int32_t v19_vt_rolldir;
+	float mpc_thr_hover;
 };
 
 // Has to match 1:1 msg/vtol_vehicle_status.msg

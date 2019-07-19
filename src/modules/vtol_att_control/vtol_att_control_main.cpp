@@ -94,6 +94,8 @@ VtolAttitudeControl::VtolAttitudeControl()
 
 	_params_handles.v19_vt_rolldir = param_find("V19_VT_ROLLDIR");
 
+	_params_handles.mpc_thr_hover = param_find("MPC_THR_HOVER");
+
 	/* fetch initial parameter values */
 	parameters_update();
 
@@ -511,6 +513,8 @@ VtolAttitudeControl::parameters_update()
 
 	// Bugfix for v1.9, should be removed in 1.10
 	param_get(_params_handles.v19_vt_rolldir, &_params.v19_vt_rolldir);
+
+	param_get(_params_handles.mpc_thr_hover, &_params.mpc_thr_hover);
 
 	// update the parameters of the instances of base VtolType
 	if (_vtol_type != nullptr) {
