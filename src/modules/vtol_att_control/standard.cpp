@@ -307,13 +307,13 @@ void Standard::update_transition_state()
 	_mc_throttle_weight = mc_weight;
 }
 
-static const float Sref = 1; // TODO
+static const float Sref = 0.2255f;
 static const float rho = 1.225f;
 
 static float CL(float alpha)
 {
-	const float CL0 = 1; // TODO
-	const float CLalpha = 1; // TODO
+	const float CL0 = 0.5322f;
+	const float CLalpha = 3.9859f;
 	return (CL0 + CLalpha*alpha);
 }
 static float lift(float alpha, float V)
@@ -323,8 +323,8 @@ static float lift(float alpha, float V)
 
 static float drag(float alpha, float V)
 {
-	const float CD0 = 1; // TODO
-	const float k_CL = 1; // TODO
+	const float CD0 = 0.0150f;
+	const float k_CL = 0.0757f;
 	float CL_ = CL(alpha);
 	float CD = CD0 + k_CL*CL_*CL_;
 	return 0.5f*rho*V*V*Sref*CD;
@@ -398,9 +398,9 @@ void Standard::update_mc_state()
 	const float Vinf = _airspeed->indicated_airspeed_m_s;
 	const Vector3f airspeed_earth_frame(0, Vinf, 0); // TODO check vicon frame in PX4
 
-	const float aoa_max = M_PI*10/180; //TODO
-	const float hover_throttle = 0.5f; //TODO reuse parameter
-	const float m = 1.2; //TODO
+	const float aoa_max = M_PI*3.8/180; // (0.8-0.5322)/3.9859/pi*180
+	const float hover_throttle = 0.5f; // TODO reuse parameter
+	const float m = 1.7f;
 	const float g = 9.81f;
 
 	// reference force includes force to cancel gravity (in paper f_r does not include gravity)
