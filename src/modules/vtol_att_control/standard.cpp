@@ -43,8 +43,11 @@
 
 #include "standard.h"
 #include "vtol_att_control_main.h"
+#include <uORB/topics/debug_key_value.h>
+#include <uORB/topics/debug_vect.h>
 
 #include <float.h>
+#include <cmath>
 
 using namespace matrix;
 
@@ -67,6 +70,18 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	_params_handles_standard.pitch_setpoint_offset = param_find("FW_PSP_OFF");
 	_params_handles_standard.reverse_output = param_find("VT_B_REV_OUT");
 	_params_handles_standard.reverse_delay = param_find("VT_B_REV_DEL");
+
+	/* advertise debug value */
+	struct debug_key_value_s dbg;
+	strncpy(dbg.key, "test", 10);
+	dbg.value = 10;
+	_pub_dbg_val = orb_advertise(ORB_ID(debug_key_value), &dbg);
+	struct debug_vect_s dbgv;
+	strncpy(dbgv.name, "testv", 10);
+	dbgv.x = 1;
+	dbgv.y = 2;
+	dbgv.z = 3;
+	_pub_dbg_vect = orb_advertise(ORB_ID(debug_vect), &dbgv);
 }
 
 void
@@ -323,7 +338,7 @@ static float lift(float alpha, float V)
 
 static float drag(float alpha, float V)
 {
-	const float CD0 = 0.0150f;
+	const float CD0 = 0.030f;//0.0150f;
 	const float k_CL = 0.0757f;
 	float CL_ = CL(alpha);
 	float CD = CD0 + k_CL*CL_*CL_;
@@ -392,13 +407,15 @@ void Standard::update_mc_state()
 	// direction of reference body z axis represented in earth frame
 	const Vector3f body_z_sp(R_sp(0, 2), R_sp(1, 2), R_sp(2, 2));
 	// direction of the current body x axis in earth frame
-	const Vector3f x_body_in_earth(R_sp(0, 0), R_sp(1, 0), R_sp(2, 0));
-	const Vector3f z_body_in_earth(R_sp(0, 2), R_sp(1, 2), R_sp(2, 2));
+	const Vector3f x_body_in_earth(R(0, 0), R(1, 0), R(2, 0));
+	const Vector3f z_body_in_earth(R(0, 2), R(1, 2), R(2, 2));
 
-	const float Vinf = _airspeed->indicated_airspeed_m_s;
-	const Vector3f airspeed_earth_frame(0, Vinf, 0); // TODO check vicon frame in PX4
+	const float Vinf = fabsf(_airspeed->indicated_airspeed_m_s);
 
-	const float aoa_max = M_PI*3.8/180; // (0.8-0.5322)/3.9859/pi*180
+	const Vector3f airspeed_dir(x_body_in_earth(0), x_body_in_earth(1), 0); // xy projection of body x-axis
+	const Vector3f airspeed_earth_frame = airspeed_dir.normalized()*Vinf;
+
+	const float aoa_max = M_PI*8/180; // (0.8-0.5322)/3.9859/pi*180 = 3.8
 	const float hover_throttle = _params->mpc_thr_hover;
 	const float m = 1.7f;
 	const float g = 9.81f;
@@ -438,7 +455,7 @@ void Standard::update_mc_state()
 	wind_to_earth.setCol(1, y_wind_in_earth);
 	wind_to_earth.setCol(2, z_wind_in_earth);
 	Quatf att_sp_high_speed(wind_to_earth * body_to_wind); // body to earth quaternion
-	if (airspeed_earth_frame.norm() < 0.1f || -f_r_perpendicular < 0.001f) {
+	if (airspeed_earth_frame.norm() < 0.1f || -f_r_perpendicular < 0.0001f) {
 		att_sp_high_speed = _v_att->q; // set target to current attitude
 	}
 
@@ -448,11 +465,16 @@ void Standard::update_mc_state()
 	const Quatf att_sp = slerp(att_sp_low_speed, att_sp_high_speed, gamma);
 
 
-	float aoa = asinf(x_wind_in_earth * x_body_in_earth);
+	float aoa = atan2f(x_wind_in_earth * z_body_in_earth, x_wind_in_earth * x_body_in_earth);
+	if (Vinf < 1 || isnan(aoa)) {
+		aoa = 0;
+	}
 	// normalized lift/drag force (corresponds to a MC throttle point)
 	float f_lift = hover_throttle * lift(aoa, Vinf)/(m*g);
 	float f_drag = hover_throttle * drag(aoa, Vinf)/(m*g);
-	const Vector3f f_aero = - f_lift*z_wind_in_earth - f_drag*x_wind_in_earth;
+	// const Vector3f f_aero = - f_lift*z_wind_in_earth - f_drag*x_wind_in_earth;
+	const Vector3f f_aero = (-f_lift*cosf(aoa) - f_drag*sinf(aoa))*z_body_in_earth
+						  + (f_lift*sinf(aoa) - f_drag*cosf(aoa))*x_body_in_earth;
 	const Vector3f f_th = f_r - f_aero;
 	// thruster force in body z (negative)
 	float fz = z_body_in_earth * f_th;
@@ -470,6 +492,63 @@ void Standard::update_mc_state()
 	_v_att_sp->thrust_body[2] = fz; // this is for multirotor thrust
 
 	_pusher_throttle = _pusher_throttle < 0.0f ? 0.0f : _pusher_throttle;
+
+	static int i = 0;
+	i++;
+	int i_mod = i%5;
+	static struct debug_key_value_s dbg;
+	if (i_mod == 0) {
+		strncpy(dbg.key, "xx_gamma", 10);
+		dbg.value = gamma;
+	} else if (i_mod == 1) {
+		strncpy(dbg.key, "xx_aoa", 10);
+		dbg.value = aoa;
+	} else if (i_mod == 2) {
+		strncpy(dbg.key, "xx_fz", 10);
+		dbg.value = fz;
+	} else if (i_mod == 3) {
+		strncpy(dbg.key, "xx_fx", 10);
+		dbg.value = fx;
+	} else if (i_mod == 4) {
+		strncpy(dbg.key, "xx_alpha_d", 10);
+		dbg.value = alpha_d;
+	}
+	orb_publish(ORB_ID(debug_key_value), _pub_dbg_val, &dbg);
+
+	static struct debug_vect_s dbg_vect;
+	static int j = 0;
+	j++;
+	int j_mod = j%3;
+	if (j_mod == 0) {
+		dbg_vect.x = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(0);
+		dbg_vect.y = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(1);
+		dbg_vect.z = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(2);
+		strncpy(dbg_vect.name, "xx_att_hs", 10);
+	} else if (j_mod == 1) {
+		// dbg_vect.x = f_aero(0);
+		// dbg_vect.y = f_aero(1);
+		// dbg_vect.z = f_aero(2);
+		// strncpy(dbg_vect.name, "xx_f_aero", 10);
+		dbg_vect.x = x_wind_in_earth(0);
+		dbg_vect.y = x_wind_in_earth(1);
+		dbg_vect.z = x_wind_in_earth(2);
+		strncpy(dbg_vect.name, "xx_wind_x", 10);
+	} else if (j_mod == 2) {
+		// dbg_vect.x = z_body_in_earth(0);
+		// dbg_vect.y = z_body_in_earth(1);
+		// dbg_vect.z = z_body_in_earth(2);
+		// strncpy(dbg_vect.name, "xx_body_z", 10);
+		// Quatf body_to_wind_q(body_to_wind);
+		// dbg_vect.x = (float)math::signNoZero(body_to_wind_q(0))*body_to_wind_q.imag()(0);
+		// dbg_vect.y = (float)math::signNoZero(body_to_wind_q(0))*body_to_wind_q.imag()(1);
+		// dbg_vect.z = (float)math::signNoZero(body_to_wind_q(0))*body_to_wind_q.imag()(2);
+		Quatf wind_to_earth_q(wind_to_earth);
+		dbg_vect.x = (float)math::signNoZero(wind_to_earth_q(0))*wind_to_earth_q.imag()(0);
+		dbg_vect.y = (float)math::signNoZero(wind_to_earth_q(0))*wind_to_earth_q.imag()(1);
+		dbg_vect.z = (float)math::signNoZero(wind_to_earth_q(0))*wind_to_earth_q.imag()(2);
+		strncpy(dbg_vect.name, "xx_w2e", 10);
+	}
+	orb_publish(ORB_ID(debug_vect), _pub_dbg_vect, &dbg_vect);
 }
 
 void Standard::update_fw_state()

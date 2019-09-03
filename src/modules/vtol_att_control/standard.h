@@ -48,6 +48,7 @@
 #include "vtol_type.h"
 #include <parameters/param.h>
 #include <drivers/drv_hrt.h>
+#include <uORB/uORB.h>
 
 class Standard : public VtolType
 {
@@ -101,6 +102,8 @@ private:
 	float _pusher_throttle{0.0f};
 	float _reverse_output{0.0f};
 	float _airspeed_trans_blend_margin{0.0f};
+	orb_advert_t _pub_dbg_val;
+	orb_advert_t _pub_dbg_vect;
 
 	void parameters_update() override;
 };
