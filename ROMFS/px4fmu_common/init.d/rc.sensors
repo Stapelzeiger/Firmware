@@ -41,14 +41,14 @@ then
 		# detected as MS5525 because the chip manufacturer was so
 		# clever to assign the same I2C address and skip a WHO_AM_I
 		# register.
-		if [ $BOARD_FMUV3 = 21 ]
-		then
-			ms5525_airspeed start -b 2
-		else
-			ms5525_airspeed start -a
-		fi
+		#if [ $BOARD_FMUV3 = 21 ]
+		#then
+		#	ms5525_airspeed start -b 2
+		#else
+		#	ms5525_airspeed start -a
+		#fi
 
-		ms4525_airspeed start -a
+		#ms4525_airspeed start -a
 
 		ets_airspeed start -a
 
