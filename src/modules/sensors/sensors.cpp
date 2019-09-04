@@ -164,7 +164,9 @@ private:
 	bool		_armed{false};				/**< arming status of the vehicle */
 
 	int		_actuator_ctrl_0_sub{-1};		/**< attitude controls sub */
-	int		_diff_pres_sub{-1};			/**< raw differential pressure subscription */
+	int		_diff_pres_sub0{-1};			/**< raw differential pressure subscription */
+	int		_diff_pres_sub1{-1};			/**< raw differential pressure subscription */
+	int		_diff_pres_sub2{-1};			/**< raw differential pressure subscription */
 	int		_vcontrol_mode_sub{-1};		/**< vehicle control mode subscription */
 	int 		_params_sub{-1};			/**< notification of parameter updates */
 
@@ -298,12 +300,23 @@ void
 Sensors::diff_pres_poll(const vehicle_air_data_s &raw)
 {
 	bool updated;
-	orb_check(_diff_pres_sub, &updated);
-
+	orb_check(_diff_pres_sub0, &updated);
 	if (updated) {
 		differential_pressure_s diff_pres;
-		int ret = orb_copy(ORB_ID(differential_pressure), _diff_pres_sub, &diff_pres);
+		int ret = orb_copy(ORB_ID(differential_pressure), _diff_pres_sub0, &diff_pres);
 
+		if (ret != PX4_OK) {
+			return;
+		}
+
+		differential_pressure_s aos_pres;
+		ret = orb_copy(ORB_ID(differential_pressure), _diff_pres_sub1, &aos_pres);
+		if (ret != PX4_OK) {
+			return;
+		}
+
+		differential_pressure_s aoa_pres;
+		ret = orb_copy(ORB_ID(differential_pressure), _diff_pres_sub2, &aoa_pres);
 		if (ret != PX4_OK) {
 			return;
 		}
@@ -352,6 +365,18 @@ Sensors::diff_pres_poll(const vehicle_air_data_s &raw)
 					     air_temperature_celsius);
 
 		airspeed.air_temperature_celsius = air_temperature_celsius;
+
+		airspeed.aoa = aoa_pres.differential_pressure_filtered_pa/diff_pres.differential_pressure_filtered_pa; // todo
+		airspeed.aos = aos_pres.differential_pressure_filtered_pa/diff_pres.differential_pressure_filtered_pa;
+
+		 // todo multiply by coefficient
+		float px = diff_pres.differential_pressure_filtered_pa;
+		float py = aos_pres.differential_pressure_filtered_pa;
+		float pz = aoa_pres.differential_pressure_filtered_pa;
+		float normalization = 1/sqrtf(px*px + py*py + pz*pz + 0.001f);
+		airspeed.airspeed_body_x = airspeed.indicated_airspeed_m_s*px*normalization;
+		airspeed.airspeed_body_y = airspeed.indicated_airspeed_m_s*py*normalization;
+		airspeed.airspeed_body_z = airspeed.indicated_airspeed_m_s*pz*normalization;
 
 		if (PX4_ISFINITE(airspeed.indicated_airspeed_m_s) && PX4_ISFINITE(airspeed.true_airspeed_m_s)) {
 			int instance;
@@ -601,7 +626,9 @@ Sensors::run()
 	/*
 	 * do subscriptions
 	 */
-	_diff_pres_sub = orb_subscribe(ORB_ID(differential_pressure));
+	_diff_pres_sub0 = orb_subscribe_multi(ORB_ID(differential_pressure), 0);
+	_diff_pres_sub1 = orb_subscribe_multi(ORB_ID(differential_pressure), 1);
+	_diff_pres_sub2 = orb_subscribe_multi(ORB_ID(differential_pressure), 2);
 	_vcontrol_mode_sub = orb_subscribe(ORB_ID(vehicle_control_mode));
 	_params_sub = orb_subscribe(ORB_ID(parameter_update));
 	_actuator_ctrl_0_sub = orb_subscribe(ORB_ID(actuator_controls_0));
@@ -714,7 +741,9 @@ Sensors::run()
 		perf_end(_loop_perf);
 	}
 
-	orb_unsubscribe(_diff_pres_sub);
+	orb_unsubscribe(_diff_pres_sub0);
+	orb_unsubscribe(_diff_pres_sub1);
+	orb_unsubscribe(_diff_pres_sub2);
 	orb_unsubscribe(_vcontrol_mode_sub);
 	orb_unsubscribe(_params_sub);
 	orb_unsubscribe(_actuator_ctrl_0_sub);

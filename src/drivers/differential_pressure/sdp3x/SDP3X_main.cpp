@@ -154,18 +154,16 @@ int stop()
 	if (g_dev0 != nullptr) {
 		delete g_dev0;
 		g_dev0 = nullptr;
-		return PX4_OK;
 	}
 	if (g_dev1 != nullptr) {
 		delete g_dev1;
 		g_dev1 = nullptr;
-		return PX4_OK;
 	}
 	if (g_dev2 != nullptr) {
 		delete g_dev2;
 		g_dev2 = nullptr;
-		return PX4_OK;
 	}
+	return PX4_OK;
 
 	PX4_ERR("driver not running");
 	return PX4_ERROR;

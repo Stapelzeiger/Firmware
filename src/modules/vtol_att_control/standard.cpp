@@ -520,10 +520,15 @@ void Standard::update_mc_state()
 	j++;
 	int j_mod = j%3;
 	if (j_mod == 0) {
-		dbg_vect.x = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(0);
-		dbg_vect.y = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(1);
-		dbg_vect.z = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(2);
-		strncpy(dbg_vect.name, "xx_att_hs", 10);
+		// dbg_vect.x = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(0);
+		// dbg_vect.y = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(1);
+		// dbg_vect.z = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(2);
+		// strncpy(dbg_vect.name, "xx_att_hs", 10);
+
+		dbg_vect.x = _airspeed->airspeed_body_x;
+		dbg_vect.y = _airspeed->airspeed_body_y;
+		dbg_vect.z = _airspeed->airspeed_body_z;
+		strncpy(dbg_vect.name, "xx_3d_wind", 10);
 	} else if (j_mod == 1) {
 		// dbg_vect.x = f_aero(0);
 		// dbg_vect.y = f_aero(1);
