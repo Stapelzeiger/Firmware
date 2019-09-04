@@ -66,7 +66,9 @@
 #define SDP3X_SCALE_PRESSURE_SDP32	240
 #define SDP3X_SCALE_PRESSURE_SDP33	20
 
-#define PATH_SDP3X "/dev/sdp3x"
+#define PATH_SDP3X_0 "/dev/sdp3x_0"
+#define PATH_SDP3X_1 "/dev/sdp3x_1"
+#define PATH_SDP3X_2 "/dev/sdp3x_2"
 
 // Measurement rate is 20Hz
 #define SPD3X_MEAS_RATE 100
@@ -76,7 +78,7 @@
 class SDP3X : public Airspeed
 {
 public:
-	SDP3X(int bus, int address = I2C_ADDRESS_1_SDP3X, const char *path = PATH_SDP3X) :
+	SDP3X(int bus, int address = I2C_ADDRESS_1_SDP3X, const char *path = PATH_SDP3X_0) :
 		Airspeed(bus, address, CONVERSION_INTERVAL, path)
 	{
 	}

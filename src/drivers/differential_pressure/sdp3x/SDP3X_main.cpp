@@ -43,7 +43,9 @@ extern "C" __EXPORT int sdp3x_airspeed_main(int argc, char *argv[]);
 // Local functions in support of the shell command.
 namespace sdp3x_airspeed
 {
-SDP3X *g_dev = nullptr;
+SDP3X *g_dev0 = nullptr;
+SDP3X *g_dev1 = nullptr;
+SDP3X *g_dev2 = nullptr;
 
 int start();
 int start_bus(uint8_t i2c_bus);
@@ -79,80 +81,99 @@ start()
 int
 start_bus(uint8_t i2c_bus)
 {
-	int fd = -1;
+	int fd;
 
-	if (g_dev != nullptr) {
+	if (g_dev0 != nullptr || g_dev1 != nullptr || g_dev2 != nullptr) {
 		PX4_WARN("already started");
 		return PX4_ERROR;
 	}
 
-	g_dev = new SDP3X(i2c_bus, I2C_ADDRESS_1_SDP3X, PATH_SDP3X);
+	g_dev0 = new SDP3X(i2c_bus, I2C_ADDRESS_1_SDP3X, PATH_SDP3X_0);
+	g_dev1 = new SDP3X(i2c_bus, I2C_ADDRESS_2_SDP3X, PATH_SDP3X_1);
+	g_dev2 = new SDP3X(i2c_bus, I2C_ADDRESS_3_SDP3X, PATH_SDP3X_2);
 
-	/* check if the SDP3XDSO was instantiated */
-	if (g_dev == nullptr) {
-		goto fail;
-	}
-
-	/* try the next SDP3XDSO if init fails */
-	if (g_dev->init() != PX4_OK) {
-		delete g_dev;
-
-		g_dev = new SDP3X(i2c_bus, I2C_ADDRESS_2_SDP3X, PATH_SDP3X);
-
-		/* check if the SDP3XDSO was instantiated */
-		if (g_dev == nullptr) {
-			PX4_ERR("SDP3X was not instantiated (RAM)");
-			goto fail;
-		}
-
-		/* both versions failed if the init for the SDP3XDSO fails, give up */
-		if (g_dev->init() != PX4_OK) {
-			goto fail;
+	if (g_dev0 != nullptr) {
+		if (g_dev0->init() == PX4_OK) {
+			/* set the poll rate to default, starts automatic data collection */
+			fd = px4_open(PATH_SDP3X_0, O_RDONLY);
+			if (fd < 0 || px4_ioctl(fd, SENSORIOCSPOLLRATE, SENSOR_POLLRATE_DEFAULT) < 0) {
+				delete g_dev0;
+				g_dev0 = nullptr;
+				PX4_ERR("SDP3x 0 failed");
+			}
+		} else {
+			delete g_dev0;
+			g_dev0 = nullptr;
+			PX4_ERR("SDP3x 0 init failed");
 		}
 	}
 
-	/* set the poll rate to default, starts automatic data collection */
-	fd = px4_open(PATH_SDP3X, O_RDONLY);
-
-	if (fd < 0) {
-		goto fail;
+	if (g_dev1 != nullptr) {
+		if (g_dev1->init() == PX4_OK) {
+			/* set the poll rate to default, starts automatic data collection */
+			fd = px4_open(PATH_SDP3X_1, O_RDONLY);
+			if (fd < 0 || px4_ioctl(fd, SENSORIOCSPOLLRATE, SENSOR_POLLRATE_DEFAULT) < 0) {
+				delete g_dev1;
+				g_dev1 = nullptr;
+				PX4_ERR("SDP3x 1 failed");
+			}
+		} else {
+			delete g_dev1;
+			g_dev1 = nullptr;
+			PX4_ERR("SDP3x 1 init failed");
+		}
 	}
 
-	if (px4_ioctl(fd, SENSORIOCSPOLLRATE, SENSOR_POLLRATE_DEFAULT) < 0) {
-		goto fail;
+	if (g_dev2 != nullptr) {
+		if (g_dev2->init() == PX4_OK) {
+			/* set the poll rate to default, starts automatic data collection */
+			fd = px4_open(PATH_SDP3X_2, O_RDONLY);
+			if (fd < 0 || px4_ioctl(fd, SENSORIOCSPOLLRATE, SENSOR_POLLRATE_DEFAULT) < 0) {
+				delete g_dev2;
+				g_dev2 = nullptr;
+				PX4_ERR("SDP3x 2 failed");
+			}
+		} else {
+			delete g_dev2;
+			g_dev2 = nullptr;
+			PX4_ERR("SDP3x 2 init failed");
+		}
+	}
+
+	if (g_dev0 == nullptr && g_dev1 == nullptr && g_dev2 == nullptr) {
+		PX4_ERR("driver start failed");
+		return PX4_ERROR;
 	}
 
 	return PX4_OK;
-
-fail:
-
-	if (g_dev != nullptr) {
-		delete g_dev;
-		g_dev = nullptr;
-	}
-
-	return PX4_ERROR;
 }
 
 // stop the driver
 int stop()
 {
-	if (g_dev != nullptr) {
-		delete g_dev;
-		g_dev = nullptr;
-
-	} else {
-		PX4_ERR("driver not running");
-		return PX4_ERROR;
+	if (g_dev0 != nullptr) {
+		delete g_dev0;
+		g_dev0 = nullptr;
+		return PX4_OK;
+	}
+	if (g_dev1 != nullptr) {
+		delete g_dev1;
+		g_dev1 = nullptr;
+		return PX4_OK;
+	}
+	if (g_dev2 != nullptr) {
+		delete g_dev2;
+		g_dev2 = nullptr;
+		return PX4_OK;
 	}
 
-	return PX4_OK;
+	PX4_ERR("driver not running");
+	return PX4_ERROR;
 }
 
-// reset the driver
-int reset()
+int reset_(const char* path)
 {
-	int fd = px4_open(PATH_SDP3X, O_RDONLY);
+	int fd = px4_open(path, O_RDONLY);
 
 	if (fd < 0) {
 		PX4_ERR("failed ");
@@ -171,6 +192,21 @@ int reset()
 
 	return PX4_OK;
 }
+
+
+// reset the driver
+int reset()
+{
+	int ret0 = reset_(PATH_SDP3X_0);
+	int ret1 = reset_(PATH_SDP3X_1);
+	int ret2 = reset_(PATH_SDP3X_2);
+	if (ret0 == PX4_OK || ret1 == PX4_OK || ret2 == PX4_OK) {
+		return PX4_OK;
+	} else {
+		return PX4_ERROR;
+	}
+}
+
 
 } // namespace sdp3x_airspeed
 
