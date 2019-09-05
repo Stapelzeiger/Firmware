@@ -370,13 +370,15 @@ Sensors::diff_pres_poll(const vehicle_air_data_s &raw)
 		airspeed.aos = aos_pres.differential_pressure_filtered_pa/diff_pres.differential_pressure_filtered_pa;
 
 		 // todo multiply by coefficient
+		const float angle_pressure_coeff = 0.22f; // 1/((0.66+0.7)/0.3)
 		float px = diff_pres.differential_pressure_filtered_pa;
-		float py = aos_pres.differential_pressure_filtered_pa;
-		float pz = aoa_pres.differential_pressure_filtered_pa;
+		float py = aos_pres.differential_pressure_filtered_pa * angle_pressure_coeff;
+		float pz = -1*aoa_pres.differential_pressure_filtered_pa * angle_pressure_coeff;
 		float normalization = 1/sqrtf(px*px + py*py + pz*pz + 0.001f);
 		airspeed.airspeed_body_x = airspeed.indicated_airspeed_m_s*px*normalization;
 		airspeed.airspeed_body_y = airspeed.indicated_airspeed_m_s*py*normalization;
 		airspeed.airspeed_body_z = airspeed.indicated_airspeed_m_s*pz*normalization;
+		airspeed.aoa = atan2f(airspeed.airspeed_body_z, airspeed.airspeed_body_x);
 
 		if (PX4_ISFINITE(airspeed.indicated_airspeed_m_s) && PX4_ISFINITE(airspeed.true_airspeed_m_s)) {
 			int instance;

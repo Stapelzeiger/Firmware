@@ -495,23 +495,17 @@ void Standard::update_mc_state()
 
 	static int i = 0;
 	i++;
-	int i_mod = i%5;
+	int i_mod = i%3;
 	static struct debug_key_value_s dbg;
 	if (i_mod == 0) {
 		strncpy(dbg.key, "xx_gamma", 10);
 		dbg.value = gamma;
 	} else if (i_mod == 1) {
 		strncpy(dbg.key, "xx_aoa", 10);
-		dbg.value = aoa;
+		dbg.value = _airspeed->aoa*180/(float)M_PI;
 	} else if (i_mod == 2) {
 		strncpy(dbg.key, "xx_fz", 10);
 		dbg.value = fz;
-	} else if (i_mod == 3) {
-		strncpy(dbg.key, "xx_fx", 10);
-		dbg.value = fx;
-	} else if (i_mod == 4) {
-		strncpy(dbg.key, "xx_alpha_d", 10);
-		dbg.value = alpha_d;
 	}
 	orb_publish(ORB_ID(debug_key_value), _pub_dbg_val, &dbg);
 
