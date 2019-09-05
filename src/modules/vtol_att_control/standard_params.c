@@ -58,7 +58,7 @@ PARAM_DEFINE_FLOAT(VT_DWN_PITCH_MAX, 5.0f);
  * This technique can be used to avoid the plane having to pitch down a lot in order to move forward.
  * Setting this value to 0 (default) will disable this strategy.
  * @min 0.0
- * @max 2.0
+ * @max 5.0
  * @group VTOL Attitude Control
  */
 PARAM_DEFINE_FLOAT(VT_FWD_THRUST_SC, 0.0f);

@@ -322,13 +322,17 @@ void Standard::update_transition_state()
 	_mc_throttle_weight = mc_weight;
 }
 
-static const float Sref = 0.2255f;
-static const float rho = 1.225f;
+// static const float Sref = 0.2255f;
+static const float Sref = 0.2231244f;
+// static const float rho = 1.225f;
+static const float rho = 1.18f;
 
 static float CL(float alpha)
 {
-	const float CL0 = 0.5322f;
-	const float CLalpha = 3.9859f;
+	// const float CL0 = 0.5322f;
+	// const float CLalpha = 3.9859f;
+	const float CL0 = 0.3707f;
+	const float CLalpha = 3.2566f;
 	return (CL0 + CLalpha*alpha);
 }
 static float lift(float alpha, float V)
@@ -336,12 +340,23 @@ static float lift(float alpha, float V)
 	return 0.5f*rho*V*V*Sref*CL(alpha);
 }
 
+// static float drag(float alpha, float V)
+// {
+// // 	const float CD0 = 0.030f;//0.0150f;
+// // 	const float k_CL = 0.0757f;
+// 	const float CD0 = 0.1469f;//0.0150f;
+// 	const float k_CL = 0.0942f;
+// 	float CL_ = CL(alpha);
+// 	float CD = CD0 + k_CL*CL_*CL_;
+// 	return 0.5f*rho*V*V*Sref*CD;
+// }
+
 static float drag(float alpha, float V)
 {
-	const float CD0 = 0.030f;//0.0150f;
-	const float k_CL = 0.0757f;
-	float CL_ = CL(alpha);
-	float CD = CD0 + k_CL*CL_*CL_;
+	const float CD0 = 0.1543f;
+	const float CD1 = 0.178f;
+	const float CD2 = 1.619f;
+	float CD = CD0 + CD1*alpha + CD2*alpha*alpha;
 	return 0.5f*rho*V*V*Sref*CD;
 }
 
@@ -398,7 +413,7 @@ void Standard::update_mc_state()
 		return;
 	}
 
-	const Dcmf R(Quatf(_v_att->q));
+	const Dcmf R(Quatf(_v_att->q)); // R_body->earth
 	const Dcmf R_sp(Quatf(_v_att_sp->q_d));
 	const Eulerf euler(R);
 	const Eulerf euler_sp(R_sp);
@@ -412,11 +427,16 @@ void Standard::update_mc_state()
 
 	const float Vinf = fabsf(_airspeed->indicated_airspeed_m_s);
 
-	const Vector3f airspeed_dir(x_body_in_earth(0), x_body_in_earth(1), 0); // xy projection of body x-axis
-	const Vector3f airspeed_earth_frame = airspeed_dir.normalized()*Vinf;
+	// // previous inertial fixed airspeed direction
+	// const Vector3f airspeed_dir(x_body_in_earth(0), x_body_in_earth(1), 0); // xy projection of body x-axis
+	// const Vector3f airspeed_earth_frame = airspeed_dir.normalized()*Vinf;
 
+	const Vector3f airspeed_body_frame(_airspeed->airspeed_body_x, _airspeed->airspeed_body_y, _airspeed->airspeed_body_z);
+	const Vector3f airspeed_earth_frame = R*airspeed_body_frame;
+
+	// TODO calibration offset, currently zero body angle is 2deg measured aoa
 	const float aoa_max = M_PI*8/180; // (0.8-0.5322)/3.9859/pi*180 = 3.8
-	const float hover_throttle = _params->mpc_thr_hover;
+	const float hover_output_force = _params->mpc_thr_hover * _params->mpc_thr_hover;
 	const float m = 1.7f;
 	const float g = 9.81f;
 
@@ -439,13 +459,13 @@ void Standard::update_mc_state()
 	// from f_r, so f_r_perpendicular is always negative
 	float f_r_perpendicular = -f_r_perpendicular_v.norm();
 	float f_L_max_force = lift(aoa_max, Vinf);
-	float f_L_max = hover_throttle * f_L_max_force/(m*g);
+	float f_L_max = hover_output_force * f_L_max_force/(m*g);
 	float alpha_d;
 	if (- f_r_perpendicular > f_L_max) {
 		alpha_d = aoa_max; // limit wing to max lift
 	} else {
 		float f_L_zero_force = lift(0, Vinf);
-		float f_L_zero = hover_throttle * f_L_zero_force/(m*g);
+		float f_L_zero = hover_output_force * f_L_zero_force/(m*g);
 		alpha_d = (-f_r_perpendicular - f_L_zero)/(f_L_max-f_L_zero) * aoa_max; // linear interpolation
 	}
 	const Eulerf alpha_pitch_up(0, alpha_d, 0);
@@ -465,13 +485,14 @@ void Standard::update_mc_state()
 	const Quatf att_sp = slerp(att_sp_low_speed, att_sp_high_speed, gamma);
 
 
-	float aoa = atan2f(x_wind_in_earth * z_body_in_earth, x_wind_in_earth * x_body_in_earth);
+	// float aoa = atan2f(x_wind_in_earth * z_body_in_earth, x_wind_in_earth * x_body_in_earth);
+	float aoa = _airspeed->aoa;
 	if (Vinf < 1 || isnan(aoa)) {
 		aoa = 0;
 	}
 	// normalized lift/drag force (corresponds to a MC throttle point)
-	float f_lift = hover_throttle * lift(aoa, Vinf)/(m*g);
-	float f_drag = hover_throttle * drag(aoa, Vinf)/(m*g);
+	float f_lift = hover_output_force * lift(aoa, Vinf)/(m*g);
+	float f_drag = hover_output_force * drag(aoa, Vinf)/(m*g);
 	// const Vector3f f_aero = - f_lift*z_wind_in_earth - f_drag*x_wind_in_earth;
 	const Vector3f f_aero = (-f_lift*cosf(aoa) - f_drag*sinf(aoa))*z_body_in_earth
 						  + (f_lift*sinf(aoa) - f_drag*cosf(aoa))*x_body_in_earth;
@@ -484,12 +505,12 @@ void Standard::update_mc_state()
 
 	// _params_standard.forward_thrust_scale converts MC throttle to forward throttle
 	// should be the ratio of max_lifter_force / max_thruster_force
-	_pusher_throttle = fx * _params_standard.forward_thrust_scale;
+	_pusher_throttle = sqrtf(fx < 0 ? 0.0f : fx)*_params_standard.forward_thrust_scale;
 	att_sp.copyTo(_v_att_sp->q_d);
 	_v_att_sp->q_d_valid = true;
 	_v_att_sp->thrust_body[0] = 0;
 	_v_att_sp->thrust_body[1] = 0;
-	_v_att_sp->thrust_body[2] = fz; // this is for multirotor thrust
+	_v_att_sp->thrust_body[2] = -sqrtf(fz > 0 ? 0.0f : -fz); // this is for multirotor thrust
 
 	_pusher_throttle = _pusher_throttle < 0.0f ? 0.0f : _pusher_throttle;
 
@@ -498,14 +519,14 @@ void Standard::update_mc_state()
 	int i_mod = i%3;
 	static struct debug_key_value_s dbg;
 	if (i_mod == 0) {
-		strncpy(dbg.key, "xx_gamma", 10);
-		dbg.value = gamma;
+		strncpy(dbg.key, "xx_lift", 10);
+		dbg.value = f_lift;
 	} else if (i_mod == 1) {
 		strncpy(dbg.key, "xx_aoa", 10);
-		dbg.value = _airspeed->aoa*180/(float)M_PI;
+		dbg.value = aoa*180/(float)M_PI;
 	} else if (i_mod == 2) {
-		strncpy(dbg.key, "xx_fz", 10);
-		dbg.value = fz;
+		strncpy(dbg.key, "xx_drag", 10);
+		dbg.value = f_drag;
 	}
 	orb_publish(ORB_ID(debug_key_value), _pub_dbg_val, &dbg);
 
@@ -522,16 +543,16 @@ void Standard::update_mc_state()
 		dbg_vect.x = _airspeed->airspeed_body_x;
 		dbg_vect.y = _airspeed->airspeed_body_y;
 		dbg_vect.z = _airspeed->airspeed_body_z;
-		strncpy(dbg_vect.name, "xx_3d_wind", 10);
+		strncpy(dbg_vect.name, "xx_wind_b", 10);
 	} else if (j_mod == 1) {
 		// dbg_vect.x = f_aero(0);
 		// dbg_vect.y = f_aero(1);
 		// dbg_vect.z = f_aero(2);
 		// strncpy(dbg_vect.name, "xx_f_aero", 10);
-		dbg_vect.x = x_wind_in_earth(0);
-		dbg_vect.y = x_wind_in_earth(1);
-		dbg_vect.z = x_wind_in_earth(2);
-		strncpy(dbg_vect.name, "xx_wind_x", 10);
+		dbg_vect.x = fx;
+		dbg_vect.y = 0;
+		dbg_vect.z = fz;
+		strncpy(dbg_vect.name, "xx_f_th", 10);
 	} else if (j_mod == 2) {
 		// dbg_vect.x = z_body_in_earth(0);
 		// dbg_vect.y = z_body_in_earth(1);

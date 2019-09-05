@@ -366,14 +366,14 @@ Sensors::diff_pres_poll(const vehicle_air_data_s &raw)
 
 		airspeed.air_temperature_celsius = air_temperature_celsius;
 
-		airspeed.aoa = aoa_pres.differential_pressure_filtered_pa/diff_pres.differential_pressure_filtered_pa; // todo
-		airspeed.aos = aos_pres.differential_pressure_filtered_pa/diff_pres.differential_pressure_filtered_pa;
+		airspeed.aoa = aoa_pres.differential_pressure_raw_pa/diff_pres.differential_pressure_raw_pa; // todo
+		airspeed.aos = aos_pres.differential_pressure_raw_pa/diff_pres.differential_pressure_raw_pa;
 
 		 // todo multiply by coefficient
 		const float angle_pressure_coeff = 0.22f; // 1/((0.66+0.7)/0.3)
-		float px = diff_pres.differential_pressure_filtered_pa;
-		float py = aos_pres.differential_pressure_filtered_pa * angle_pressure_coeff;
-		float pz = -1*aoa_pres.differential_pressure_filtered_pa * angle_pressure_coeff;
+		float px = diff_pres.differential_pressure_raw_pa;
+		float py = aos_pres.differential_pressure_raw_pa * angle_pressure_coeff;
+		float pz = -1*aoa_pres.differential_pressure_raw_pa * angle_pressure_coeff;
 		float normalization = 1/sqrtf(px*px + py*py + pz*pz + 0.001f);
 		airspeed.airspeed_body_x = airspeed.indicated_airspeed_m_s*px*normalization;
 		airspeed.airspeed_body_y = airspeed.indicated_airspeed_m_s*py*normalization;
