@@ -342,6 +342,15 @@ static float drag(float alpha, float V)
 	return 0.5f*rho*V*V*Sref*CD;
 }
 
+static float sqrtf_signed(float in)
+{
+	if (in < 0.0f) {
+		return -sqrtf(-in);
+	} else {
+		return sqrtf(in);
+	}
+}
+
 static Quatf slerp(const Quatf &q0, const Quatf &q1, float t)
 {
 	// translated from Eigen
@@ -418,13 +427,13 @@ void Standard::update_mc_state()
 
 	// TODO calibration offset, currently zero body angle is 2deg measured aoa
 	const float aoa_max = M_PI*8/180; // (0.8-0.5322)/3.9859/pi*180 = 3.8
-	const float hover_output_force = _params->mpc_thr_hover * _params->mpc_thr_hover;
 	const float m = 1.7f;
 	const float g = 9.81f;
 
 	// reference force includes force to cancel gravity (in paper f_r does not include gravity)
 	// (_v_att_sp->thrust_body[2] is negative)
-	const Vector3f f_r = body_z_sp * _v_att_sp->thrust_body[2]; // reference force in earth frame
+	const Vector3f f_r_signal_units = body_z_sp * _v_att_sp->thrust_body[2]; // reference force in earth frame [signal]
+	const Vector3f f_r = f_r_signal_units * (m*g/_params->mpc_thr_hover); // reference force in earth frame [N]
 
 	// Low speed force allocation
 	const Quatf att_sp_low_speed = _v_att_sp->q_d; // just use desired MC attitude
@@ -440,14 +449,12 @@ void Standard::update_mc_state()
 	// definition of scalar f_r_perpendicular is along z_w which is pointing away
 	// from f_r, so f_r_perpendicular is always negative
 	float f_r_perpendicular = -f_r_perpendicular_v.norm();
-	float f_L_max_force = lift(aoa_max, Vinf);
-	float f_L_max = hover_output_force * f_L_max_force/(m*g);
+	float f_L_max = lift(aoa_max, Vinf);
 	float alpha_d;
 	if (- f_r_perpendicular > f_L_max) {
 		alpha_d = aoa_max; // limit wing to max lift
 	} else {
-		float f_L_zero_force = lift(0, Vinf);
-		float f_L_zero = hover_output_force * f_L_zero_force/(m*g);
+		float f_L_zero = lift(0, Vinf);
 		alpha_d = (-f_r_perpendicular - f_L_zero)/(f_L_max-f_L_zero) * aoa_max; // linear interpolation
 	}
 	const Eulerf alpha_pitch_up(0, alpha_d, 0);
@@ -472,9 +479,9 @@ void Standard::update_mc_state()
 	if (Vinf < 1 || isnan(aoa)) {
 		aoa = 0;
 	}
-	// normalized lift/drag force (corresponds to a MC throttle point)
-	float f_lift = hover_output_force * lift(aoa, Vinf)/(m*g);
-	float f_drag = hover_output_force * drag(aoa, Vinf)/(m*g);
+	// lift/drag force
+	float f_lift = lift(aoa, Vinf);
+	float f_drag = drag(aoa, Vinf);
 	// const Vector3f f_aero = - f_lift*z_wind_in_earth - f_drag*x_wind_in_earth;
 	const Vector3f f_aero = (-f_lift*cosf(aoa) - f_drag*sinf(aoa))*z_body_in_earth
 						  + (f_lift*sinf(aoa) - f_drag*cosf(aoa))*x_body_in_earth;
@@ -485,14 +492,19 @@ void Standard::update_mc_state()
 	float fx = x_body_in_earth * f_th;
 
 
+	const float hover_th_sq = _params->mpc_thr_hover * _params->mpc_thr_hover;
+	float fz_signal_sq = fz / (m*g) * hover_th_sq;
+	float fz_signal = sqrtf_signed(fz_signal_sq);
+	float fx_signal_sq = fx / (m*g) * hover_th_sq;
+	float fx_signal = sqrtf_signed(fx_signal_sq)*_params_standard.forward_thrust_scale;
 	// _params_standard.forward_thrust_scale converts MC throttle to forward throttle
 	// should be the ratio of max_lifter_force / max_thruster_force
-	_pusher_throttle = sqrtf(fx < 0 ? 0.0f : fx)*_params_standard.forward_thrust_scale;
+	_pusher_throttle = fx_signal;
 	att_sp.copyTo(_v_att_sp->q_d);
 	_v_att_sp->q_d_valid = true;
 	_v_att_sp->thrust_body[0] = 0;
 	_v_att_sp->thrust_body[1] = 0;
-	_v_att_sp->thrust_body[2] = -sqrtf(fz > 0 ? 0.0f : -fz); // this is for multirotor thrust
+	_v_att_sp->thrust_body[2] = fz_signal; // this is for multirotor thrust
 
 	_pusher_throttle = _pusher_throttle < 0.0f ? 0.0f : _pusher_throttle;
 
