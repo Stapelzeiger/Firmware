@@ -562,11 +562,10 @@ void Standard::update_mc_state()
 		// dbg_vect.x = (float)math::signNoZero(body_to_wind_q(0))*body_to_wind_q.imag()(0);
 		// dbg_vect.y = (float)math::signNoZero(body_to_wind_q(0))*body_to_wind_q.imag()(1);
 		// dbg_vect.z = (float)math::signNoZero(body_to_wind_q(0))*body_to_wind_q.imag()(2);
-		Quatf wind_to_earth_q(wind_to_earth);
-		dbg_vect.x = (float)math::signNoZero(wind_to_earth_q(0))*wind_to_earth_q.imag()(0);
-		dbg_vect.y = (float)math::signNoZero(wind_to_earth_q(0))*wind_to_earth_q.imag()(1);
-		dbg_vect.z = (float)math::signNoZero(wind_to_earth_q(0))*wind_to_earth_q.imag()(2);
-		strncpy(dbg_vect.name, "xx_w2e", 10);
+		dbg_vect.x = f_r(0);
+		dbg_vect.y = f_r(1);
+		dbg_vect.z = f_r(2);
+		strncpy(dbg_vect.name, "xx_f_r", 10);
 	}
 	orb_publish(ORB_ID(debug_vect), _pub_dbg_vect, &dbg_vect);
 }
