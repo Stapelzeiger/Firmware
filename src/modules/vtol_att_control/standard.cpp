@@ -322,34 +322,16 @@ void Standard::update_transition_state()
 	_mc_throttle_weight = mc_weight;
 }
 
-// static const float Sref = 0.2255f;
 static const float Sref = 0.2231244f;
-// static const float rho = 1.225f;
 static const float rho = 1.18f;
 
-static float CL(float alpha)
-{
-	// const float CL0 = 0.5322f;
-	// const float CLalpha = 3.9859f;
-	const float CL0 = 0.3707f;
-	const float CLalpha = 3.2566f;
-	return (CL0 + CLalpha*alpha);
-}
 static float lift(float alpha, float V)
 {
-	return 0.5f*rho*V*V*Sref*CL(alpha);
+	const float CL0 = 0.3707f;
+	const float CLalpha = 3.2566f;
+	const float CL = CL0 + CLalpha*alpha;
+	return 0.5f*rho*V*V*Sref*CL;
 }
-
-// static float drag(float alpha, float V)
-// {
-// // 	const float CD0 = 0.030f;//0.0150f;
-// // 	const float k_CL = 0.0757f;
-// 	const float CD0 = 0.1469f;//0.0150f;
-// 	const float k_CL = 0.0942f;
-// 	float CL_ = CL(alpha);
-// 	float CD = CD0 + k_CL*CL_*CL_;
-// 	return 0.5f*rho*V*V*Sref*CD;
-// }
 
 static float drag(float alpha, float V)
 {
