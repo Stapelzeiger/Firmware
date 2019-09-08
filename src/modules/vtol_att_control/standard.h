@@ -69,6 +69,16 @@ public:
 private:
 
 	struct {
+		float gamma_cd0;
+		float gamma_cd1;
+		float gamma_cd2;
+		float gamma_cl0;
+		float gamma_cl1;
+		float gamma_ctx;
+		float gamma_ctz;
+		float lambda_a;
+		float lambda_t;
+		float theta_max_dev;
 		float pusher_ramp_dt;
 		float back_trans_ramp;
 		float down_pitch_max;
@@ -79,6 +89,16 @@ private:
 	} _params_standard;
 
 	struct {
+		param_t gamma_cd0;
+		param_t gamma_cd1;
+		param_t gamma_cd2;
+		param_t gamma_cl0;
+		param_t gamma_cl1;
+		param_t gamma_ctx;
+		param_t gamma_ctz;
+		param_t lambda_a;
+		param_t lambda_t;
+		param_t theta_max_dev;
 		param_t pusher_ramp_dt;
 		param_t back_trans_ramp;
 		param_t down_pitch_max;
@@ -113,6 +133,8 @@ private:
 	matrix::Vector<float, 2> theta_T0;
 	matrix::Vector<float, 5> theta_A; // [CD0, CD1, CD2, CL0, CL1]
 	matrix::Vector<float, 5> theta_A0;
+	matrix::Vector<float, 5> Gamma_A_diag;
+	matrix::Vector<float, 2> Gamma_T_diag;
 	void parameters_update() override;
 };
 #endif

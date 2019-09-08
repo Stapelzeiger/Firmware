@@ -72,6 +72,16 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	_mc_yaw_weight = 1.0f;
 	_mc_throttle_weight = 1.0f;
 
+	_params_handles_standard.gamma_cd0 = param_find("VT_ADAPT_G_CD0");
+	_params_handles_standard.gamma_cd1 = param_find("VT_ADAPT_G_CD1");
+	_params_handles_standard.gamma_cd2 = param_find("VT_ADAPT_G_CD2");
+	_params_handles_standard.gamma_cl0 = param_find("VT_ADAPT_G_CL0");
+	_params_handles_standard.gamma_cl1 = param_find("VT_ADAPT_G_CL1");
+	_params_handles_standard.gamma_ctx = param_find("VT_ADAPT_G_CTX");
+	_params_handles_standard.gamma_ctz = param_find("VT_ADAPT_G_CTZ");
+	_params_handles_standard.lambda_a = param_find("VT_ADAPT_L_A");
+	_params_handles_standard.lambda_t = param_find("VT_ADAPT_L_T");
+	_params_handles_standard.theta_max_dev = param_find("VT_ADAPT_MAX_DEV");
 	_params_handles_standard.pusher_ramp_dt = param_find("VT_PSHER_RMP_DT");
 	_params_handles_standard.back_trans_ramp = param_find("VT_B_TRANS_RAMP");
 	_params_handles_standard.down_pitch_max = param_find("VT_DWN_PITCH_MAX");
@@ -95,9 +105,11 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	// adaptive model
 	prev_Phi_T.setZero();
 	prev_Phi_A.setZero();
+	Gamma_A_diag.setZero();
+	Gamma_T_diag.setZero();
 
-	float hover_th = 0.45;
-	float fw_th_scale = 3;
+	float hover_th = 0.45f;
+	float fw_th_scale = 2.0f;
 	theta_T0(0) = (m*g)/(hover_th*hover_th * fw_th_scale*fw_th_scale); // CTx
 	theta_T0(1) = (m*g)/(hover_th*hover_th); // CTz
 	theta_T = theta_T0;
@@ -113,6 +125,46 @@ void
 Standard::parameters_update()
 {
 	float v;
+
+	/* adaptation gains */
+	param_get(_params_handles_standard.gamma_cd0, &v);
+	_params_standard.gamma_cd0 = v;
+	Gamma_A_diag(0) = _params_standard.gamma_cd0;
+
+	param_get(_params_handles_standard.gamma_cd1, &v);
+	_params_standard.gamma_cd1 = v;
+	Gamma_A_diag(1) = _params_standard.gamma_cd1;
+
+	param_get(_params_handles_standard.gamma_cd2, &v);
+	_params_standard.gamma_cd2 = v;
+	Gamma_A_diag(2) = _params_standard.gamma_cd2;
+
+	param_get(_params_handles_standard.gamma_cl0, &v);
+	_params_standard.gamma_cl0 = v;
+	Gamma_A_diag(3) = _params_standard.gamma_cl0;
+
+	param_get(_params_handles_standard.gamma_cl1, &v);
+	_params_standard.gamma_cl1 = v;
+	Gamma_A_diag(4) = _params_standard.gamma_cl1;
+
+	param_get(_params_handles_standard.gamma_ctx, &v);
+	_params_standard.gamma_ctx = v;
+	Gamma_T_diag(0) = _params_standard.gamma_ctx;
+
+	param_get(_params_handles_standard.gamma_ctz, &v);
+	_params_standard.gamma_ctz = v;
+	Gamma_T_diag(1) = _params_standard.gamma_ctz;
+
+
+	param_get(_params_handles_standard.lambda_a, &v);
+	_params_standard.lambda_a = v;
+
+	param_get(_params_handles_standard.lambda_t, &v);
+	_params_standard.lambda_t = v;
+
+	param_get(_params_handles_standard.theta_max_dev, &v);
+	_params_standard.theta_max_dev = v;
+
 
 	/* duration of a forwards transition to fw mode */
 	param_get(_params_handles_standard.pusher_ramp_dt, &v);
@@ -386,15 +438,15 @@ static void build_aero_model_phi(float alpha, float v, Matrix<float, 3, 5> &phi)
 	phi(2,2) = -sa*alpha2;
 	phi(2,3) = -ca;
 	phi(2,4) = -ca*alpha;
-	phi = 0.5f*rho*v*v*Sref * phi;
+	phi = 0.5f*rho*v*v*Sref/m * phi;
 }
 
 static void build_thrust_model_phi(float th_signal_x_sq, float th_signal_z_sq, Matrix<float, 3, 2> &phi)
 {
 	// parameters theta_t: [CTx, CTz]
 	phi.setZero();
-	phi(0,0) = th_signal_x_sq;
-	phi(2,1) = -th_signal_z_sq;
+	phi(0,0) = th_signal_x_sq / m;
+	phi(2,1) = -th_signal_z_sq / m;
 }
 
 static float sqrtf_signed(float in)
@@ -471,18 +523,14 @@ void Standard::update_mc_state()
 		const Vector3f v_err(_v_att_sp->vel_err_x, _v_att_sp->vel_err_y, _v_att_sp->vel_err_z);
 		const Vector<float, 5> theta_A_err = prev_Phi_A.transpose()*R.transpose()*v_err;
 		const Vector<float, 2> theta_T_err = prev_Phi_T.transpose()*R.transpose()*v_err;
-		Vector<float, 5> Gamma_A_diag; // TODO param
-		Gamma_A_diag.setZero();
-		Vector<float, 2> Gamma_T_diag; // TODO param
-		Gamma_T_diag.setZero();
-		float lambda_A = 0.01; // TODO param
-		float lambda_T = 0.01; // TODO param
+		const float lambda_A = _params_standard.lambda_a;
+		const float lambda_T = _params_standard.lambda_t;
 
 		theta_A += dt * (Gamma_A_diag.emult(theta_A_err) - lambda_A*(theta_A - theta_A0));
 		theta_T += dt * (Gamma_T_diag.emult(theta_T_err) - lambda_T*(theta_T - theta_T0));
 
 		// limit maximum deviation from initial value
-		const float max_param_deviation = 2; // TODO param
+		const float max_param_deviation = _params_standard.theta_max_dev;
 		for (int i=0; i < 5; i++) {
 			float min = theta_A0(i)/max_param_deviation;
 			float max = theta_A0(i)*max_param_deviation;
@@ -565,7 +613,7 @@ void Standard::update_mc_state()
 	}
 	// lift/drag force
 	build_aero_model_phi(aoa, Vinf, prev_Phi_A); // update Phi_A to compute current aero forces
-	const Vector3f f_aero_b = prev_Phi_A * theta_A;
+	const Vector3f f_aero_b = m * prev_Phi_A * theta_A;
 	const Vector3f f_aero = R*f_aero_b;
 	const Vector3f f_th = f_r - f_aero;
 	// thruster force in body z (negative)
@@ -596,7 +644,7 @@ void Standard::update_mc_state()
 
 	static int i = 0;
 	i++;
-	int i_mod = i%3;
+	int i_mod = i%11;
 	static struct debug_key_value_s dbg;
 	if (i_mod == 0) {
 		strncpy(dbg.key, "xx_Fa_z", 10);
@@ -607,6 +655,30 @@ void Standard::update_mc_state()
 	} else if (i_mod == 2) {
 		strncpy(dbg.key, "xx_Fa_x", 10);
 		dbg.value = f_aero_b(0);
+	} else if (i_mod == 3) {
+		strncpy(dbg.key, "xx_CD0", 10);
+		dbg.value = theta_A(0);
+	} else if (i_mod == 4) {
+		strncpy(dbg.key, "xx_CD1", 10);
+		dbg.value = theta_A(1);
+	} else if (i_mod == 5) {
+		strncpy(dbg.key, "xx_CD2", 10);
+		dbg.value = theta_A(2);
+	} else if (i_mod == 6) {
+		strncpy(dbg.key, "xx_CL0", 10);
+		dbg.value = theta_A(3);
+	} else if (i_mod == 7) {
+		strncpy(dbg.key, "xx_CL1", 10);
+		dbg.value = theta_A(4);
+	} else if (i_mod == 8) {
+		strncpy(dbg.key, "xx_CTx", 10);
+		dbg.value = theta_T(0);
+	} else if (i_mod == 9) {
+		strncpy(dbg.key, "xx_CTz", 10);
+		dbg.value = theta_T(1);
+	} else if (i_mod == 10) {
+		strncpy(dbg.key, "xx_dt", 10);
+		dbg.value = dt;
 	}
 	orb_publish(ORB_ID(debug_key_value), _pub_dbg_val, &dbg);
 
@@ -615,33 +687,17 @@ void Standard::update_mc_state()
 	j++;
 	int j_mod = j%3;
 	if (j_mod == 0) {
-		// dbg_vect.x = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(0);
-		// dbg_vect.y = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(1);
-		// dbg_vect.z = (float)math::signNoZero(att_sp_high_speed(0))*att_sp_high_speed.imag()(2);
-		// strncpy(dbg_vect.name, "xx_att_hs", 10);
-
 		dbg_vect.x = _airspeed->airspeed_body_x;
 		dbg_vect.y = _airspeed->airspeed_body_y;
 		dbg_vect.z = _airspeed->airspeed_body_z;
 		strncpy(dbg_vect.name, "xx_wind_b", 10);
 	} else if (j_mod == 1) {
-		// dbg_vect.x = f_aero(0);
-		// dbg_vect.y = f_aero(1);
-		// dbg_vect.z = f_aero(2);
-		// strncpy(dbg_vect.name, "xx_f_aero", 10);
+
 		dbg_vect.x = fx;
 		dbg_vect.y = 0;
 		dbg_vect.z = fz;
 		strncpy(dbg_vect.name, "xx_f_th", 10);
 	} else if (j_mod == 2) {
-		// dbg_vect.x = z_body_in_earth(0);
-		// dbg_vect.y = z_body_in_earth(1);
-		// dbg_vect.z = z_body_in_earth(2);
-		// strncpy(dbg_vect.name, "xx_body_z", 10);
-		// Quatf body_to_wind_q(body_to_wind);
-		// dbg_vect.x = (float)math::signNoZero(body_to_wind_q(0))*body_to_wind_q.imag()(0);
-		// dbg_vect.y = (float)math::signNoZero(body_to_wind_q(0))*body_to_wind_q.imag()(1);
-		// dbg_vect.z = (float)math::signNoZero(body_to_wind_q(0))*body_to_wind_q.imag()(2);
 		dbg_vect.x = f_r(0);
 		dbg_vect.y = f_r(1);
 		dbg_vect.z = f_r(2);
