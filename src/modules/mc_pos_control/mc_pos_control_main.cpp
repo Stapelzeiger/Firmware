@@ -720,6 +720,12 @@ MulticopterPositionControl::run()
 			_att_sp.yaw_sp_move_rate = _control.getYawspeedSetpoint();
 			_att_sp.fw_control_yaw = false;
 			_att_sp.apply_flaps = false;
+			_att_sp.vel_err_x = _states.velocity(0) - _control.getVelSp()(0);
+			_att_sp.vel_err_y = _states.velocity(1) - _control.getVelSp()(1);
+			_att_sp.vel_err_z = _states.velocity(2) - _control.getVelSp()(2);
+			_att_sp.vel_err_valid = PX4_ISFINITE(_att_sp.vel_err_x)
+									&& PX4_ISFINITE(_att_sp.vel_err_y)
+									&& PX4_ISFINITE(_att_sp.vel_err_z);
 
 			// publish attitude setpoint
 			// Note: this requires review. The reason for not sending

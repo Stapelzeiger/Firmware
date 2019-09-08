@@ -49,6 +49,7 @@
 #include <parameters/param.h>
 #include <drivers/drv_hrt.h>
 #include <uORB/uORB.h>
+#include <matrix/math.hpp>
 
 class Standard : public VtolType
 {
@@ -105,6 +106,13 @@ private:
 	orb_advert_t _pub_dbg_val;
 	orb_advert_t _pub_dbg_vect;
 
+	hrt_abstime prev_iteration_time{0};
+	matrix::Matrix<float, 3, 2> prev_Phi_T;
+	matrix::Matrix<float, 3, 5> prev_Phi_A;
+	matrix::Vector<float, 2> theta_T; // [CTx, CTz]
+	matrix::Vector<float, 2> theta_T0;
+	matrix::Vector<float, 5> theta_A; // [CD0, CD1, CD2, CL0, CL1]
+	matrix::Vector<float, 5> theta_A0;
 	void parameters_update() override;
 };
 #endif

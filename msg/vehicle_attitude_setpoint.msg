@@ -25,4 +25,10 @@ uint8 FLAPS_OFF = 0     	# no flaps
 uint8 FLAPS_LAND = 1    	# landing config flaps
 uint8 FLAPS_TAKEOFF = 2 	# take-off config flaps
 
+# velocity error for adaptive force allocation
+float32 vel_err_x
+float32 vel_err_y
+float32 vel_err_z
+bool vel_err_valid
+
 # TOPICS vehicle_attitude_setpoint mc_virtual_attitude_setpoint fw_virtual_attitude_setpoint

@@ -51,6 +51,15 @@
 
 using namespace matrix;
 
+
+static const float Sref = 0.2231244f;
+static const float rho = 1.18f;
+// TODO calibration offset, currently zero body angle is 2deg measured aoa
+static const float aoa_max = M_PI*8/180; // (0.8-0.5322)/3.9859/pi*180 = 3.8
+static const float m = 1.7f;
+static const float g = 9.81f;
+
+
 Standard::Standard(VtolAttitudeControl *attc) :
 	VtolType(attc)
 {
@@ -82,6 +91,22 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	dbgv.y = 2;
 	dbgv.z = 3;
 	_pub_dbg_vect = orb_advertise(ORB_ID(debug_vect), &dbgv);
+
+	// adaptive model
+	prev_Phi_T.setZero();
+	prev_Phi_A.setZero();
+
+	float hover_th = 0.45;
+	float fw_th_scale = 3;
+	theta_T0(0) = (m*g)/(hover_th*hover_th * fw_th_scale*fw_th_scale); // CTx
+	theta_T0(1) = (m*g)/(hover_th*hover_th); // CTz
+	theta_T = theta_T0;
+	theta_A0(0) = 0.1543f; // CD0
+	theta_A0(1) = 0.178f; // CD1
+	theta_A0(2) = 1.619f; // CD2
+	theta_A0(3) = 0.3707f; // CL0
+	theta_A0(4) = 3.2566f; // CL1
+	theta_A = theta_A0;
 }
 
 void
@@ -322,24 +347,54 @@ void Standard::update_transition_state()
 	_mc_throttle_weight = mc_weight;
 }
 
-static const float Sref = 0.2231244f;
-static const float rho = 1.18f;
 
-static float lift(float alpha, float V)
+static float force_allocation_compute_desired_alpha(float v, float alpha_max, float lift, const Vector<float, 5> &theta_A)
 {
-	const float CL0 = 0.3707f;
-	const float CLalpha = 3.2566f;
-	const float CL = CL0 + CLalpha*alpha;
-	return 0.5f*rho*V*V*Sref*CL;
+	const float CL0 = theta_A(3);
+	const float CLalpha = theta_A(4);
+	const float q_Sref = 0.5f*rho*v*v*Sref;
+	const float zero_aoa_lift = q_Sref * CL0;
+	const float lift_slope = q_Sref * CLalpha;
+	float alpha = (lift - zero_aoa_lift)/lift_slope;
+	if (alpha > alpha_max) {
+		alpha = alpha_max;
+	}
+	return alpha;
 }
 
-static float drag(float alpha, float V)
+static void build_aero_model_phi(float alpha, float v, Matrix<float, 3, 5> &phi)
 {
-	const float CD0 = 0.1543f;
-	const float CD1 = 0.178f;
-	const float CD2 = 1.619f;
-	float CD = CD0 + CD1*alpha + CD2*alpha*alpha;
-	return 0.5f*rho*V*V*Sref*CD;
+	// parameters theta_a: [CD0, CD1, CD2, CL0, CL1]
+	float ca = cosf(alpha);
+	float sa = sinf(alpha);
+	float alpha2 = alpha*alpha;
+	// fx
+	phi(0,0) = -ca;
+	phi(0,1) = -ca*alpha;
+	phi(0,2) = -ca*alpha2;
+	phi(0,3) = sa;
+	phi(0,4) = sa*alpha;
+	// fy
+	phi(1,0) = 0.0f;
+	phi(1,1) = 0.0f;
+	phi(1,2) = 0.0f;
+	phi(1,3) = 0.0f;
+	phi(1,4) = 0.0f;
+	// fz
+	phi(2,0) = -sa;
+	phi(2,1) = -sa*alpha;
+	phi(2,2) = -sa*alpha2;
+	phi(2,3) = -ca;
+	phi(2,4) = -ca*alpha;
+	phi = 0.5f*rho*v*v*Sref * phi;
+}
+
+static void build_thrust_model_phi(float th_signal_x_sq, float th_signal_z_sq, Matrix<float, 3, 2> &phi)
+{
+	// parameters theta_t: [CTx, CTz]
+	phi.setZero();
+	phi(0,0) = th_signal_x_sq;
+	phi(2,1) = -th_signal_z_sq;
 }
 
 static float sqrtf_signed(float in)
@@ -404,11 +459,51 @@ void Standard::update_mc_state()
 		return;
 	}
 
+	hrt_abstime now_us = hrt_absolute_time();
+	float dt = (float)(now_us - prev_iteration_time)/1000000;
+	prev_iteration_time = now_us;
+
 	const Dcmf R(Quatf(_v_att->q)); // R_body->earth
 	const Dcmf R_sp(Quatf(_v_att_sp->q_d));
-	const Eulerf euler(R);
-	const Eulerf euler_sp(R_sp);
-	_pusher_throttle = 0.0f;
+
+	// Adapt thrust & aero model
+	if (_v_att_sp->vel_err_valid) {
+		const Vector3f v_err(_v_att_sp->vel_err_x, _v_att_sp->vel_err_y, _v_att_sp->vel_err_z);
+		const Vector<float, 5> theta_A_err = prev_Phi_A.transpose()*R.transpose()*v_err;
+		const Vector<float, 2> theta_T_err = prev_Phi_T.transpose()*R.transpose()*v_err;
+		Vector<float, 5> Gamma_A_diag; // TODO param
+		Gamma_A_diag.setZero();
+		Vector<float, 2> Gamma_T_diag; // TODO param
+		Gamma_T_diag.setZero();
+		float lambda_A = 0.01; // TODO param
+		float lambda_T = 0.01; // TODO param
+
+		theta_A += dt * (Gamma_A_diag.emult(theta_A_err) - lambda_A*(theta_A - theta_A0));
+		theta_T += dt * (Gamma_T_diag.emult(theta_T_err) - lambda_T*(theta_T - theta_T0));
+
+		// limit maximum deviation from initial value
+		const float max_param_deviation = 2; // TODO param
+		for (int i=0; i < 5; i++) {
+			float min = theta_A0(i)/max_param_deviation;
+			float max = theta_A0(i)*max_param_deviation;
+			if (theta_A(i) < min) {
+				theta_A(i) = min;
+			}
+			if (theta_A(i) > max) {
+				theta_A(i) = max;
+			}
+		}
+		for (int i=0; i < 2; i++) {
+			float min = theta_T0(i)/max_param_deviation;
+			float max = theta_T0(i)*max_param_deviation;
+			if (theta_T(i) < min) {
+				theta_T(i) = min;
+			}
+			if (theta_T(i) > max) {
+				theta_T(i) = max;
+			}
+		}
+	}
 
 	// direction of reference body z axis represented in earth frame
 	const Vector3f body_z_sp(R_sp(0, 2), R_sp(1, 2), R_sp(2, 2));
@@ -425,38 +520,27 @@ void Standard::update_mc_state()
 	const Vector3f airspeed_body_frame(_airspeed->airspeed_body_x, _airspeed->airspeed_body_y, _airspeed->airspeed_body_z);
 	const Vector3f airspeed_earth_frame = R*airspeed_body_frame;
 
-	// TODO calibration offset, currently zero body angle is 2deg measured aoa
-	const float aoa_max = M_PI*8/180; // (0.8-0.5322)/3.9859/pi*180 = 3.8
-	const float m = 1.7f;
-	const float g = 9.81f;
-
 	// reference force includes force to cancel gravity (in paper f_r does not include gravity)
 	// (_v_att_sp->thrust_body[2] is negative)
 	const Vector3f f_r_signal_units = body_z_sp * _v_att_sp->thrust_body[2]; // reference force in earth frame [signal]
 	const Vector3f f_r = f_r_signal_units * (m*g/_params->mpc_thr_hover); // reference force in earth frame [N]
 
-	// Low speed force allocation
-	const Quatf att_sp_low_speed = _v_att_sp->q_d; // just use desired MC attitude
-
-	// High speed force allocation
+	// construct wind frame and decompose f_r in parallel and perpendicular
 	const Vector3f x_wind_in_earth = airspeed_earth_frame.normalized();
 	float f_r_parallel = x_wind_in_earth*f_r;
 	const Vector3f f_r_parallel_v = f_r_parallel * x_wind_in_earth;
 	const Vector3f f_r_perpendicular_v = f_r - f_r_parallel_v;
 	const Vector3f y_wind_in_earth = (x_wind_in_earth.cross(f_r)).normalized();
 	const Vector3f z_wind_in_earth = x_wind_in_earth.cross(y_wind_in_earth);
-
 	// definition of scalar f_r_perpendicular is along z_w which is pointing away
 	// from f_r, so f_r_perpendicular is always negative
 	float f_r_perpendicular = -f_r_perpendicular_v.norm();
-	float f_L_max = lift(aoa_max, Vinf);
-	float alpha_d;
-	if (- f_r_perpendicular > f_L_max) {
-		alpha_d = aoa_max; // limit wing to max lift
-	} else {
-		float f_L_zero = lift(0, Vinf);
-		alpha_d = (-f_r_perpendicular - f_L_zero)/(f_L_max-f_L_zero) * aoa_max; // linear interpolation
-	}
+
+	// Low speed force allocation
+	const Quatf att_sp_low_speed = _v_att_sp->q_d; // just use desired MC attitude
+
+	// High speed force allocation
+	float alpha_d = force_allocation_compute_desired_alpha(Vinf, aoa_max, -f_r_perpendicular, theta_A);
 	const Eulerf alpha_pitch_up(0, alpha_d, 0);
 	const Dcmf body_to_wind(alpha_pitch_up);
 	Dcmf wind_to_earth;
@@ -476,29 +560,29 @@ void Standard::update_mc_state()
 
 	// float aoa = atan2f(x_wind_in_earth * z_body_in_earth, x_wind_in_earth * x_body_in_earth);
 	float aoa = _airspeed->aoa;
-	if (Vinf < 1 || isnan(aoa)) {
+	if (Vinf < 1 || !PX4_ISFINITE(aoa)) {
 		aoa = 0;
 	}
 	// lift/drag force
-	float f_lift = lift(aoa, Vinf);
-	float f_drag = drag(aoa, Vinf);
-	// const Vector3f f_aero = - f_lift*z_wind_in_earth - f_drag*x_wind_in_earth;
-	const Vector3f f_aero = (-f_lift*cosf(aoa) - f_drag*sinf(aoa))*z_body_in_earth
-						  + (f_lift*sinf(aoa) - f_drag*cosf(aoa))*x_body_in_earth;
+	build_aero_model_phi(aoa, Vinf, prev_Phi_A); // update Phi_A to compute current aero forces
+	const Vector3f f_aero_b = prev_Phi_A * theta_A;
+	const Vector3f f_aero = R*f_aero_b;
 	const Vector3f f_th = f_r - f_aero;
 	// thruster force in body z (negative)
 	float fz = z_body_in_earth * f_th;
 	// thruster force in body x (positive)
 	float fx = x_body_in_earth * f_th;
 
-
-	const float hover_th_sq = _params->mpc_thr_hover * _params->mpc_thr_hover;
-	float fz_signal_sq = fz / (m*g) * hover_th_sq;
+	// u^2 * CT = f
+	float CTx = theta_T(0);
+	float CTz = theta_T(1);
+	float fz_signal_sq = fz / CTz; // this is negative
 	float fz_signal = sqrtf_signed(fz_signal_sq);
-	float fx_signal_sq = fx / (m*g) * hover_th_sq;
-	float fx_signal = sqrtf_signed(fx_signal_sq)*_params_standard.forward_thrust_scale;
-	// _params_standard.forward_thrust_scale converts MC throttle to forward throttle
-	// should be the ratio of max_lifter_force / max_thruster_force
+	float fx_signal_sq = fx / CTx;
+	float fx_signal = sqrtf_signed(fx_signal_sq);
+
+	build_thrust_model_phi(fx_signal_sq, -fz_signal_sq, prev_Phi_T);
+
 	_pusher_throttle = fx_signal;
 	att_sp.copyTo(_v_att_sp->q_d);
 	_v_att_sp->q_d_valid = true;
@@ -508,19 +592,21 @@ void Standard::update_mc_state()
 
 	_pusher_throttle = _pusher_throttle < 0.0f ? 0.0f : _pusher_throttle;
 
+ 	///////////////////////////// publish debug values /////////////////////////
+
 	static int i = 0;
 	i++;
 	int i_mod = i%3;
 	static struct debug_key_value_s dbg;
 	if (i_mod == 0) {
-		strncpy(dbg.key, "xx_lift", 10);
-		dbg.value = f_lift;
+		strncpy(dbg.key, "xx_Fa_z", 10);
+		dbg.value = f_aero_b(2);
 	} else if (i_mod == 1) {
 		strncpy(dbg.key, "xx_aoa", 10);
 		dbg.value = aoa*180/(float)M_PI;
 	} else if (i_mod == 2) {
-		strncpy(dbg.key, "xx_drag", 10);
-		dbg.value = f_drag;
+		strncpy(dbg.key, "xx_Fa_x", 10);
+		dbg.value = f_aero_b(0);
 	}
 	orb_publish(ORB_ID(debug_key_value), _pub_dbg_val, &dbg);
 

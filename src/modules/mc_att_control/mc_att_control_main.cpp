@@ -501,6 +501,8 @@ MulticopterAttitudeControl::generate_attitude_setpoint(float dt, bool reset_yaw_
 	attitude_setpoint.q_d_valid = true;
 
 	attitude_setpoint.thrust_body[2] = -throttle_curve(_manual_control_sp.z);
+
+	attitude_setpoint.vel_err_valid = false;
 	attitude_setpoint.timestamp = hrt_absolute_time();
 	if (_attitude_sp_id != nullptr) {
 		orb_publish_auto(_attitude_sp_id, &_vehicle_attitude_setpoint_pub, &attitude_setpoint, nullptr, ORB_PRIO_DEFAULT);
