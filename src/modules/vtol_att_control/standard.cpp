@@ -458,6 +458,11 @@ static float sqrtf_signed(float in)
 	}
 }
 
+static float sq(float x)
+{
+	return x*x;
+}
+
 static Quatf slerp(const Quatf &q0, const Quatf &q1, float t)
 {
 	// translated from Eigen
@@ -625,8 +630,14 @@ void Standard::update_mc_state()
 	float CTx = theta_T(0);
 	float CTz = theta_T(1);
 	float fz_signal_sq = fz / CTz; // this is negative
-	float fz_signal = sqrtf_signed(fz_signal_sq);
 	float fx_signal_sq = fx / CTx;
+	if (-fz_signal_sq < sq(0.10f)) {
+		fz_signal_sq = 0;
+	}
+	if (fx_signal_sq < sq(0.10f)) {
+		fx_signal_sq = 0;
+	}
+	float fz_signal = sqrtf_signed(fz_signal_sq);
 	float fx_signal = sqrtf_signed(fx_signal_sq);
 
 	build_thrust_model_phi(fx_signal_sq, -fz_signal_sq, prev_Phi_T);
@@ -720,6 +731,12 @@ void Standard::fill_actuator_outputs()
 	// multirotor controls
 	_actuators_out_0->timestamp = hrt_absolute_time();
 	_actuators_out_0->timestamp_sample = _actuators_mc_in->timestamp_sample;
+
+	if (_actuators_mc_in->control[actuator_controls_s::INDEX_THROTTLE] < 0.01f) {
+		_mc_roll_weight = 0;
+		_mc_pitch_weight = 0;
+		_mc_yaw_weight = 0;
+	}
 
 	// roll
 	_actuators_out_0->control[actuator_controls_s::INDEX_ROLL] =
