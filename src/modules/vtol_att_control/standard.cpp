@@ -524,10 +524,10 @@ void Standard::update_mc_state()
 	const Dcmf R_sp(Quatf(_v_att_sp->q_d));
 
 	// Adapt thrust & aero model
+	const Vector3f v_err(_v_att_sp->vel_err_x, _v_att_sp->vel_err_y, _v_att_sp->vel_err_z);
+	const Vector<float, 5> theta_A_err = prev_Phi_A.transpose()*R.transpose()*v_err;
+	const Vector<float, 2> theta_T_err = prev_Phi_T.transpose()*R.transpose()*v_err;
 	if (_v_att_sp->vel_err_valid) {
-		const Vector3f v_err(_v_att_sp->vel_err_x, _v_att_sp->vel_err_y, _v_att_sp->vel_err_z);
-		const Vector<float, 5> theta_A_err = prev_Phi_A.transpose()*R.transpose()*v_err;
-		const Vector<float, 2> theta_T_err = prev_Phi_T.transpose()*R.transpose()*v_err;
 		const float lambda_A = _params_standard.lambda_a;
 		const float lambda_T = _params_standard.lambda_t;
 
@@ -698,16 +698,23 @@ void Standard::update_mc_state()
 	j++;
 	int j_mod = j%3;
 	if (j_mod == 0) {
-		dbg_vect.x = _airspeed->airspeed_body_x;
-		dbg_vect.y = _airspeed->airspeed_body_y;
-		dbg_vect.z = _airspeed->airspeed_body_z;
-		strncpy(dbg_vect.name, "xx_wind_b", 10);
+		// dbg_vect.x = _airspeed->airspeed_body_x;
+		// dbg_vect.y = _airspeed->airspeed_body_y;
+		// dbg_vect.z = _airspeed->airspeed_body_z;
+		// strncpy(dbg_vect.name, "xx_wind_b", 10);
+		dbg_vect.x = v_err(0);
+		dbg_vect.y = v_err(1);
+		dbg_vect.z = v_err(2);
+		strncpy(dbg_vect.name, "xx_v_err", 10);
 	} else if (j_mod == 1) {
-
-		dbg_vect.x = fx;
-		dbg_vect.y = 0;
-		dbg_vect.z = fz;
-		strncpy(dbg_vect.name, "xx_f_th", 10);
+		// dbg_vect.x = fx;
+		// dbg_vect.y = 0;
+		// dbg_vect.z = fz;
+		// strncpy(dbg_vect.name, "xx_f_th", 10);
+		dbg_vect.x = theta_T_err(0);
+		dbg_vect.y = theta_T_err(1);
+		dbg_vect.z = 0;
+		strncpy(dbg_vect.name, "xx_thT_e", 10);
 	} else if (j_mod == 2) {
 		dbg_vect.x = f_r(0);
 		dbg_vect.y = f_r(1);
