@@ -158,6 +158,7 @@ bool MulticopterLandDetector::_get_ground_contact_state()
 	if (!_arming.armed) {
 		return true;
 	}
+	return false;
 
 	// land speed threshold
 	float land_speed_threshold = 0.9f * math::max(_params.landSpeed, 0.1f);
@@ -209,6 +210,7 @@ bool MulticopterLandDetector::_get_maybe_landed_state()
 	if (!_arming.armed) {
 		return true;
 	}
+	return false;
 
 	if (_has_minimal_thrust()) {
 		if (_min_trust_start == 0) {
@@ -256,6 +258,7 @@ bool MulticopterLandDetector::_get_landed_state()
 	if (!_arming.armed) {
 		return true;
 	}
+	return false;
 
 	// reset the landed_time
 	if (!_maybe_landed_hysteresis.get_state()) {
