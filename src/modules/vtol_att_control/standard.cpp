@@ -80,8 +80,8 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	_params_handles_standard.gamma_cl1 = param_find("VT_ADAPT_G_CL1");
 	_params_handles_standard.gamma_ctx = param_find("VT_ADAPT_G_CTX");
 	_params_handles_standard.gamma_ctz = param_find("VT_ADAPT_G_CTZ");
-	_params_handles_standard.lambda_a = param_find("VT_ADAPT_L_A");
-	_params_handles_standard.lambda_t = param_find("VT_ADAPT_L_T");
+	_params_handles_standard.gamma_ctdz = param_find("VT_ADAPT_G_CTDZ");
+	_params_handles_standard.lambda = param_find("VT_ADAPT_L");
 	_params_handles_standard.theta_max_dev = param_find("VT_ADAPT_MAX_DEV");
 	_params_handles_standard.acc_lp_fc = param_find("VT_ADAPT_A_LP_FC");
 	_params_handles_standard.lambda_P = param_find("VT_ADAPT_L_P");
@@ -108,33 +108,32 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	_pub_dbg_vect = orb_advertise(ORB_ID(debug_vect), &dbgv);
 
 	// adaptive model
-	prev_Phi_T.setZero();
-	prev_Phi_A.setZero();
-	Gamma_A_diag.setZero();
-	Gamma_T_diag.setZero();
+	prev_Phi.setZero();
+	Gamma_diag.setZero();
 
 	float hover_th = 0.45f;
 	float fw_th_scale = 2.0f;
-	theta_T0(0) = (m*g)/(hover_th*hover_th * fw_th_scale*fw_th_scale); // CTx
-	theta_T0(1) = (m*g)/(hover_th*hover_th); // CTz
-	theta_T = theta_T0;
-	theta_A0(0) = 0.1543f; // CD0
-	theta_A0(1) = 0.178f; // CD1
-	theta_A0(2) = 1.619f; // CD2
-	theta_A0(3) = 0.3707f; // CL0
-	theta_A0(4) = 3.2566f; // CL1
-	theta_A = theta_A0;
+	theta0(0) = (m*g)/(hover_th*hover_th * fw_th_scale*fw_th_scale); // CTx
+	theta0(1) = (m*g)/(hover_th*hover_th); // CTz
+	theta0(2) = 0.1; // CTDz // TODO
+	theta0(3) = 0.1543f; // CD0
+	theta0(4) = 0.178f; // CD1
+	theta0(5) = 1.619f; // CD2
+	theta0(6) = 0.3707f; // CL0
+	theta0(7) = 3.2566f; // CL1
+	theta = theta0;
 
 	W.setZero();
 	a_f.setZero();
 	P.setZero();
 	P(0, 0) = _params_standard.gamma_ctx;
 	P(1, 1) = _params_standard.gamma_ctz;
-	P(2, 2) = _params_standard.gamma_cd0;
-	P(3, 3) = _params_standard.gamma_cd1;
-	P(4, 4) = _params_standard.gamma_cd2;
-	P(5, 5) = _params_standard.gamma_cl0;
-	P(6, 6) = _params_standard.gamma_cl1;
+	P(2, 2) = _params_standard.gamma_ctdz;
+	P(3, 3) = _params_standard.gamma_cd0;
+	P(4, 4) = _params_standard.gamma_cd1;
+	P(5, 5) = _params_standard.gamma_cd2;
+	P(6, 6) = _params_standard.gamma_cl0;
+	P(7, 7) = _params_standard.gamma_cl1;
 }
 
 void
@@ -143,40 +142,41 @@ Standard::parameters_update()
 	float v;
 
 	/* adaptation gains */
-	param_get(_params_handles_standard.gamma_cd0, &v);
-	_params_standard.gamma_cd0 = v;
-	Gamma_A_diag(0) = _params_standard.gamma_cd0;
-
-	param_get(_params_handles_standard.gamma_cd1, &v);
-	_params_standard.gamma_cd1 = v;
-	Gamma_A_diag(1) = _params_standard.gamma_cd1;
-
-	param_get(_params_handles_standard.gamma_cd2, &v);
-	_params_standard.gamma_cd2 = v;
-	Gamma_A_diag(2) = _params_standard.gamma_cd2;
-
-	param_get(_params_handles_standard.gamma_cl0, &v);
-	_params_standard.gamma_cl0 = v;
-	Gamma_A_diag(3) = _params_standard.gamma_cl0;
-
-	param_get(_params_handles_standard.gamma_cl1, &v);
-	_params_standard.gamma_cl1 = v;
-	Gamma_A_diag(4) = _params_standard.gamma_cl1;
-
 	param_get(_params_handles_standard.gamma_ctx, &v);
 	_params_standard.gamma_ctx = v;
-	Gamma_T_diag(0) = _params_standard.gamma_ctx;
+	Gamma_diag(0) = _params_standard.gamma_ctx;
 
 	param_get(_params_handles_standard.gamma_ctz, &v);
 	_params_standard.gamma_ctz = v;
-	Gamma_T_diag(1) = _params_standard.gamma_ctz;
+	Gamma_diag(1) = _params_standard.gamma_ctz;
+
+	param_get(_params_handles_standard.gamma_ctdz, &v);
+	_params_standard.gamma_ctdz = v;
+	Gamma_diag(2) = _params_standard.gamma_ctdz;
+
+	param_get(_params_handles_standard.gamma_cd0, &v);
+	_params_standard.gamma_cd0 = v;
+	Gamma_diag(3) = _params_standard.gamma_cd0;
+
+	param_get(_params_handles_standard.gamma_cd1, &v);
+	_params_standard.gamma_cd1 = v;
+	Gamma_diag(4) = _params_standard.gamma_cd1;
+
+	param_get(_params_handles_standard.gamma_cd2, &v);
+	_params_standard.gamma_cd2 = v;
+	Gamma_diag(5) = _params_standard.gamma_cd2;
+
+	param_get(_params_handles_standard.gamma_cl0, &v);
+	_params_standard.gamma_cl0 = v;
+	Gamma_diag(6) = _params_standard.gamma_cl0;
+
+	param_get(_params_handles_standard.gamma_cl1, &v);
+	_params_standard.gamma_cl1 = v;
+	Gamma_diag(7) = _params_standard.gamma_cl1;
 
 
-	param_get(_params_handles_standard.lambda_a, &v);
-	_params_standard.lambda_a = v;
-
-	param_get(_params_handles_standard.lambda_t, &v);
-	_params_standard.lambda_t = v;
+	param_get(_params_handles_standard.lambda, &v);
+	_params_standard.lambda = v;
 
 	param_get(_params_handles_standard.theta_max_dev, &v);
 	_params_standard.theta_max_dev = v;
@@ -422,10 +422,10 @@ void Standard::update_transition_state()
 }
 
 
-static float force_allocation_compute_desired_alpha(float v, float alpha_max, float lift, const Vector<float, 5> &theta_A)
+static float force_allocation_compute_desired_alpha(float v, float alpha_max, float lift, const Vector<float, 8> &theta)
 {
-	const float CL0 = theta_A(3);
-	const float CLalpha = theta_A(4);
+	const float CL0 = theta(6);
+	const float CLalpha = theta(7);
 	const float q_Sref = 0.5f*rho*v*v*Sref;
 	const float zero_aoa_lift = q_Sref * CL0;
 	const float lift_slope = q_Sref * CLalpha;
@@ -436,37 +436,38 @@ static float force_allocation_compute_desired_alpha(float v, float alpha_max, fl
 	return alpha;
 }
 
-static void build_aero_model_phi(float alpha, float v, Matrix<float, 3, 5> &phi)
+static void fill_aero_model_phi(float alpha, float v, Matrix<float, 3, 8> &phi)
 {
-	// parameters theta_a: [CD0, CD1, CD2, CL0, CL1]
+	// parameters theta: [CTx, CTz, CTDz, CD0, CD1, CD2, CL0, CL1]
 	float ca = cosf(alpha);
 	float sa = sinf(alpha);
 	float alpha2 = alpha*alpha;
 	// fx
-	phi(0,0) = -ca;
-	phi(0,1) = -ca*alpha;
-	phi(0,2) = -ca*alpha2;
-	phi(0,3) = sa;
-	phi(0,4) = sa*alpha;
-	// fy
-	phi(1,0) = 0.0f;
-	phi(1,1) = 0.0f;
-	phi(1,2) = 0.0f;
-	phi(1,3) = 0.0f;
-	phi(1,4) = 0.0f;
+	phi(0,3) = -ca;
+	phi(0,4) = -ca*alpha;
+	phi(0,5) = -ca*alpha2;
+	phi(0,6) = sa;
+	phi(0,7) = sa*alpha;
+	// fy = 0
 	// fz
-	phi(2,0) = -sa;
-	phi(2,1) = -sa*alpha;
-	phi(2,2) = -sa*alpha2;
-	phi(2,3) = -ca;
-	phi(2,4) = -ca*alpha;
+	phi(2,3) = -sa;
+	phi(2,4) = -sa*alpha;
+	phi(2,5) = -sa*alpha2;
+	phi(2,6) = -ca;
+	phi(2,7) = -ca*alpha;
 	phi = 0.5f*rho*v*v*Sref/m * phi;
 }
 
-static void build_thrust_model_phi(float th_signal_x_sq, float th_signal_z_sq, Matrix<float, 3, 2> &phi)
+
+static void fill_thruster_drag_model_phi(float th_signal_z_sq, float vx, float vy, Matrix<float, 3, 8> &phi)
 {
-	// parameters theta_t: [CTx, CTz]
-	phi.setZero();
+	// parameters theta: [CTx, CTz, CTDz, CD0, CD1, CD2, CL0, CL1]
+	// TODO
+}
+
+static void fill_thrust_model_phi(float th_signal_x_sq, float th_signal_z_sq, Matrix<float, 3, 8> &phi)
+{
+	// parameters theta: [CTx, CTz, CTDz, CD0, CD1, CD2, CL0, CL1]
 	phi(0,0) = th_signal_x_sq / m;
 	phi(2,1) = -th_signal_z_sq / m;
 }
@@ -553,16 +554,12 @@ void Standard::update_mc_state()
 
 	// Adapt thrust & aero model based on velocity error
 	const Vector3f v_err(_v_att_sp->vel_err_x, _v_att_sp->vel_err_y, _v_att_sp->vel_err_z);
-	const Vector<float, 5> theta_A_err = prev_Phi_A.transpose()*R.transpose()*v_err;
-	const Vector<float, 2> theta_T_err = prev_Phi_T.transpose()*R.transpose()*v_err;
+	const Vector<float, 8> theta_err = prev_Phi.transpose()*R.transpose()*v_err;
 	if (_v_att_sp->vel_err_valid) {
-		const float lambda_A = _params_standard.lambda_a;
-		const float lambda_T = _params_standard.lambda_t;
+		const float lambda = _params_standard.lambda;
 
-		// theta_A += dt * (Gamma_A_diag.emult(theta_A_err) - lambda_A*(theta_A - theta_A0));
-		// theta_T += dt * (Gamma_T_diag.emult(theta_T_err) - lambda_T*(theta_T - theta_T0));
-		theta_A += dt * (P.slice<5, 5>(2, 2)*theta_A_err - lambda_A*(theta_A - theta_A0));
-		theta_T += dt * (P.slice<2, 2>(0, 0)*theta_T_err - lambda_T*(theta_T - theta_T0));
+		// theta += dt * (Gamma_diag.emult(theta_err) - lambda*(theta - theta0));
+		theta += dt * (P*theta_err - lambda*(theta - theta0));
 	}
 
 	// Adapt thrust & aero model based on acceleration prediction error
@@ -575,7 +572,7 @@ void Standard::update_mc_state()
 	if (acc_updated) {
 		orb_copy(ORB_ID(sensor_combined), _sensor_combined_sub, &sensor_combined_msg);
 	}
-	Vector3f e_acc;
+	Vector3f e_acc; // acceleration prediction error
 	if (_v_att_sp->vel_err_valid && // this is to stop adaptation from running on the ground (= not in position mode)
 		acc_updated && sensor_combined_msg.accelerometer_timestamp_relative != sensor_combined_s::RELATIVE_TIMESTAMP_INVALID) {
 		Vector3f a(sensor_combined_msg.accelerometer_m_s2[0],
@@ -588,47 +585,24 @@ void Standard::update_mc_state()
 		// filter acceleration
 		a_f = alpha * a + (1-alpha) * a_f;
 		// filter W
-		W = (1-alpha)*W;
-		for (int i = 0; i < 3; i++) {
-			for (int j = 0; j < 2; j++) {
-				W(i, j) += alpha * prev_Phi_T(i, j);
-			}
-			for (int j = 0; j < 5; j++) {
-				W(i, j+2) += alpha * prev_Phi_A(i, j);
-			}
-		}
+		W = alpha * prev_Phi + (1-alpha) * W;
 		// update P, theta
-		Vector<float, 2+5> theta;
-		theta.set<2, 1>(theta_T, 0, 0);
-		theta.set<5, 1>(theta_A, 2, 0);
 		e_acc = W*theta - a_f;
-		const Vector<float, 2+5> theta_dot = -P*W.transpose()*e_acc;
-		theta_T += dt*theta_dot.slice<2, 1>(0, 0);
-		theta_A += dt*theta_dot.slice<5, 1>(2, 0);
+		theta += dt*(-P*W.transpose()*e_acc);
 		float lambda = _params_standard.lambda_P; // forgetting factor
 		P += dt*(-P*W.transpose()*W*P  + lambda * P);
 	}
 
 	// limit maximum deviation from initial value
 	const float max_param_deviation = _params_standard.theta_max_dev;
-	for (int i=0; i < 5; i++) {
-		float min = theta_A0(i)/max_param_deviation;
-		float max = theta_A0(i)*max_param_deviation;
-		if (theta_A(i) < min) {
-			theta_A(i) = min;
+	for (int i=0; i < 8; i++) {
+		float min = theta0(i)/max_param_deviation;
+		float max = theta0(i)*max_param_deviation;
+		if (theta(i) < min) {
+			theta(i) = min;
 		}
-		if (theta_A(i) > max) {
-			theta_A(i) = max;
-		}
-	}
-	for (int i=0; i < 2; i++) {
-		float min = theta_T0(i)/max_param_deviation;
-		float max = theta_T0(i)*max_param_deviation;
-		if (theta_T(i) < min) {
-			theta_T(i) = min;
-		}
-		if (theta_T(i) > max) {
-			theta_T(i) = max;
+		if (theta(i) > max) {
+			theta(i) = max;
 		}
 	}
 
@@ -671,7 +645,7 @@ void Standard::update_mc_state()
 	const Quatf att_sp_low_speed = _v_att_sp->q_d; // just use desired MC attitude
 
 	// High speed force allocation
-	float alpha_d = force_allocation_compute_desired_alpha(Vinf, aoa_max, -f_r_perpendicular, theta_A);
+	float alpha_d = force_allocation_compute_desired_alpha(Vinf, aoa_max, -f_r_perpendicular, theta);
 	const Eulerf alpha_pitch_up(0, alpha_d, 0);
 	const Dcmf body_to_wind(alpha_pitch_up);
 	Dcmf wind_to_earth;
@@ -689,14 +663,17 @@ void Standard::update_mc_state()
 	const Quatf att_sp = slerp(att_sp_low_speed, att_sp_high_speed, gamma);
 
 
+
+
 	// float aoa = atan2f(x_wind_in_earth * z_body_in_earth, x_wind_in_earth * x_body_in_earth);
 	float aoa = _airspeed->aoa;
 	if (Vinf < 1 || !PX4_ISFINITE(aoa)) {
 		aoa = 0;
 	}
 	// lift/drag force
-	build_aero_model_phi(aoa, Vinf, prev_Phi_A); // update Phi_A to compute current aero forces
-	const Vector3f f_aero_b = m * prev_Phi_A * theta_A;
+	prev_Phi.setZero();
+	fill_aero_model_phi(aoa, Vinf, prev_Phi); // update Phi to compute current aero forces
+	const Vector3f f_aero_b = m * prev_Phi * theta;
 	const Vector3f f_aero = R*f_aero_b;
 	const Vector3f f_th = f_r - f_aero;
 	// thruster force in body z (negative)
@@ -705,8 +682,8 @@ void Standard::update_mc_state()
 	float fx = x_body_in_earth * f_th;
 
 	// u^2 * CT = f
-	float CTx = theta_T(0);
-	float CTz = theta_T(1);
+	float CTx = theta(0);
+	float CTz = theta(1);
 	float fz_signal_sq = fz / CTz; // this is negative
 	float fx_signal_sq = fx / CTx;
 	if (-fz_signal_sq < sq(0.10f)) {
@@ -718,7 +695,8 @@ void Standard::update_mc_state()
 	float fz_signal = sqrtf_signed(fz_signal_sq);
 	float fx_signal = sqrtf_signed(fx_signal_sq);
 
-	build_thrust_model_phi(fx_signal_sq, -fz_signal_sq, prev_Phi_T);
+	fill_thrust_model_phi(fx_signal_sq, -fz_signal_sq, prev_Phi);
+	fill_thruster_drag_model_phi(-fz_signal_sq, 0, 0, prev_Phi); // TODO
 
 	_pusher_throttle = fx_signal;
 	att_sp.copyTo(_v_att_sp->q_d);
@@ -752,32 +730,36 @@ void Standard::update_mc_state()
 		dbg.value = f_aero_b(0);
 	}
 	if (i_mod-- == 0) {
-		strncpy(dbg.key, "xx_CD0", 10);
-		dbg.value = theta_A(0);
-	}
-	if (i_mod-- == 0) {
-		strncpy(dbg.key, "xx_CD1", 10);
-		dbg.value = theta_A(1);
-	}
-	if (i_mod-- == 0) {
-		strncpy(dbg.key, "xx_CD2", 10);
-		dbg.value = theta_A(2);
-	}
-	if (i_mod-- == 0) {
-		strncpy(dbg.key, "xx_CL0", 10);
-		dbg.value = theta_A(3);
-	}
-	if (i_mod-- == 0) {
-		strncpy(dbg.key, "xx_CL1", 10);
-		dbg.value = theta_A(4);
-	}
-	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_CTx", 10);
-		dbg.value = theta_T(0);
+		dbg.value = theta(0);
 	}
 	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_CTz", 10);
-		dbg.value = theta_T(1);
+		dbg.value = theta(1);
+	}
+	if (i_mod-- == 0) {
+		strncpy(dbg.key, "xx_CTDz", 10);
+		dbg.value = theta(2);
+	}
+	if (i_mod-- == 0) {
+		strncpy(dbg.key, "xx_CD0", 10);
+		dbg.value = theta(3);
+	}
+	if (i_mod-- == 0) {
+		strncpy(dbg.key, "xx_CD1", 10);
+		dbg.value = theta(4);
+	}
+	if (i_mod-- == 0) {
+		strncpy(dbg.key, "xx_CD2", 10);
+		dbg.value = theta(5);
+	}
+	if (i_mod-- == 0) {
+		strncpy(dbg.key, "xx_CL0", 10);
+		dbg.value = theta(6);
+	}
+	if (i_mod-- == 0) {
+		strncpy(dbg.key, "xx_CL1", 10);
+		dbg.value = theta(7);
 	}
 	// P matrix
 	if (i_mod-- ==  0) {
@@ -789,114 +771,147 @@ void Standard::update_mc_state()
 		dbg.value = P(1,1);
 	}
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD0CD0", 10);
+		strncpy(dbg.key, "P_CTDzCTDz", 10);
 		dbg.value = P(2,2);
 	}
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD1CD1", 10);
+		strncpy(dbg.key, "P_CD0CD0", 10);
 		dbg.value = P(3,3);
 	}
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD2CD2", 10);
+		strncpy(dbg.key, "P_CD1CD1", 10);
 		dbg.value = P(4,4);
 	}
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CL0CL0", 10);
+		strncpy(dbg.key, "P_CD2CD2", 10);
 		dbg.value = P(5,5);
 	}
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CL1CL1", 10);
+		strncpy(dbg.key, "P_CL0CL0", 10);
 		dbg.value = P(6,6);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CL1CL1", 10);
+		dbg.value = P(7,7);
 	}
 
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCTx", 10);
+		strncpy(dbg.key, "P_CTxCTz", 10);
 		dbg.value = P(0,1);
 	}
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCD0", 10);
+		strncpy(dbg.key, "P_CTxCTDz", 10);
 		dbg.value = P(0,2);
 	}
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCD1", 10);
+		strncpy(dbg.key, "P_CTxCD0", 10);
 		dbg.value = P(0,3);
 	}
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCD2", 10);
+		strncpy(dbg.key, "P_CTxCD1", 10);
 		dbg.value = P(0,4);
 	}
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCL0", 10);
+		strncpy(dbg.key, "P_CTxCD2", 10);
 		dbg.value = P(0,5);
 	}
 	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCL1", 10);
-		dbg.value = P(0,6);
-	}
-
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTxCD0", 10);
-		dbg.value = P(1,2);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTxCD1", 10);
-		dbg.value = P(1,3);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTxCD2", 10);
-		dbg.value = P(1,4);
-	}
-	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CTxCL0", 10);
-		dbg.value = P(1,5);
+		dbg.value = P(0,6);
 	}
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CTxCL1", 10);
+		dbg.value = P(0,7);
+	}
+
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCTDz", 10);
+		dbg.value = P(1,2);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCD0", 10);
+		dbg.value = P(1,3);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCD1", 10);
+		dbg.value = P(1,4);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCD2", 10);
+		dbg.value = P(1,5);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCL0", 10);
 		dbg.value = P(1,6);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCL1", 10);
+		dbg.value = P(1,7);
+	}
+
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTDzCD0", 10);
+		dbg.value = P(2,3);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTDzCD1", 10);
+		dbg.value = P(2,4);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTDzCD2", 10);
+		dbg.value = P(2,5);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTDzCL0", 10);
+		dbg.value = P(2,6);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTDzCL1", 10);
+		dbg.value = P(2,7);
 	}
 
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CD0CD1", 10);
-		dbg.value = P(2,3);
+		dbg.value = P(3,4);
 	}
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CD0CD2", 10);
-		dbg.value = P(2,4);
+		dbg.value = P(3,5);
 	}
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CD0CL0", 10);
-		dbg.value = P(2,5);
+		dbg.value = P(3,6);
 	}
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CD0CL1", 10);
-		dbg.value = P(2,6);
+		dbg.value = P(3,7);
 	}
 
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CD1CD2", 10);
-		dbg.value = P(3,4);
+		dbg.value = P(4,5);
 	}
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CD1CL0", 10);
-		dbg.value = P(3,5);
+		dbg.value = P(4,6);
 	}
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CD1CL1", 10);
-		dbg.value = P(3,6);
+		dbg.value = P(4,7);
 	}
 
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CD2CL0", 10);
-		dbg.value = P(4,5);
+		dbg.value = P(5,6);
 	}
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CD2CL1", 10);
-		dbg.value = P(4,6);
+		dbg.value = P(5,7);
 	}
 
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "P_CL0CL1", 10);
-		dbg.value = P(5,6);
+		dbg.value = P(6,7);
 	}
 
 	if (i_mod-- ==  0) {
