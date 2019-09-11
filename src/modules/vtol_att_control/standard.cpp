@@ -45,6 +45,7 @@
 #include "vtol_att_control_main.h"
 #include <uORB/topics/debug_key_value.h>
 #include <uORB/topics/debug_vect.h>
+#include <uORB/topics/sensor_combined.h>
 
 #include <float.h>
 #include <cmath>
@@ -90,6 +91,8 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	_params_handles_standard.reverse_output = param_find("VT_B_REV_OUT");
 	_params_handles_standard.reverse_delay = param_find("VT_B_REV_DEL");
 
+	parameters_update();
+
 	/* advertise debug value */
 	struct debug_key_value_s dbg;
 	strncpy(dbg.key, "test", 10);
@@ -119,6 +122,19 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	theta_A0(3) = 0.3707f; // CL0
 	theta_A0(4) = 3.2566f; // CL1
 	theta_A = theta_A0;
+
+	W.setZero();
+	a_f.setZero();
+	P.setZero();
+	P(0, 0) = _params_standard.gamma_ctx;
+	P(1, 1) = _params_standard.gamma_ctz;
+	P(2, 2) = _params_standard.gamma_cd0;
+	P(3, 3) = _params_standard.gamma_cd1;
+	P(4, 4) = _params_standard.gamma_cd2;
+	P(5, 5) = _params_standard.gamma_cl0;
+	P(6, 6) = _params_standard.gamma_cl1;
+
+	_sensor_combined_sub = orb_subscribe(ORB_ID(sensor_combined));
 }
 
 void
@@ -494,6 +510,9 @@ static Quatf slerp(const Quatf &q0, const Quatf &q1, float t)
   	return scale0 * q0 + scale1 * q1;
 }
 
+
+
+
 void Standard::update_mc_state()
 {
 	VtolType::update_mc_state();
@@ -523,7 +542,10 @@ void Standard::update_mc_state()
 	const Dcmf R(Quatf(_v_att->q)); // R_body->earth
 	const Dcmf R_sp(Quatf(_v_att_sp->q_d));
 
-	// Adapt thrust & aero model
+
+	// Parameter Adaptation
+
+	// Adapt thrust & aero model based on velocity error
 	const Vector3f v_err(_v_att_sp->vel_err_x, _v_att_sp->vel_err_y, _v_att_sp->vel_err_z);
 	const Vector<float, 5> theta_A_err = prev_Phi_A.transpose()*R.transpose()*v_err;
 	const Vector<float, 2> theta_T_err = prev_Phi_T.transpose()*R.transpose()*v_err;
@@ -531,32 +553,81 @@ void Standard::update_mc_state()
 		const float lambda_A = _params_standard.lambda_a;
 		const float lambda_T = _params_standard.lambda_t;
 
-		theta_A += dt * (Gamma_A_diag.emult(theta_A_err) - lambda_A*(theta_A - theta_A0));
-		theta_T += dt * (Gamma_T_diag.emult(theta_T_err) - lambda_T*(theta_T - theta_T0));
+		// theta_A += dt * (Gamma_A_diag.emult(theta_A_err) - lambda_A*(theta_A - theta_A0));
+		// theta_T += dt * (Gamma_T_diag.emult(theta_T_err) - lambda_T*(theta_T - theta_T0));
+		theta_A += dt * (P.slice<5, 5>(2, 2)*theta_A_err - lambda_A*(theta_A - theta_A0));
+		theta_T += dt * (P.slice<2, 2>(0, 0)*theta_T_err - lambda_T*(theta_T - theta_T0));
+	}
 
-		// limit maximum deviation from initial value
-		const float max_param_deviation = _params_standard.theta_max_dev;
-		for (int i=0; i < 5; i++) {
-			float min = theta_A0(i)/max_param_deviation;
-			float max = theta_A0(i)*max_param_deviation;
-			if (theta_A(i) < min) {
-				theta_A(i) = min;
+	// Adapt thrust & aero model based on acceleration prediction error
+	bool acc_updated;
+	orb_check(_sensor_combined_sub, &acc_updated);
+	struct sensor_combined_s sensor_combined_msg;
+	if (acc_updated) {
+		orb_copy(ORB_ID(sensor_combined), _sensor_combined_sub, &sensor_combined_msg);
+	}
+	if (acc_updated && sensor_combined_msg.accelerometer_timestamp_relative != sensor_combined_s::RELATIVE_TIMESTAMP_INVALID) {
+		Vector3f a(sensor_combined_msg.accelerometer_m_s2[0],
+					sensor_combined_msg.accelerometer_m_s2[1],
+					sensor_combined_msg.accelerometer_m_s2[2]);
+		// https://en.wikipedia.org/wiki/Low-pass_filter#Simple_infinite_impulse_response_filter
+		// out = alpha * in + (1-alpha) * prev_out;
+		float fc_W_fiter = 10; // TODO parameter
+		float alpha = (2*(float)M_PI*dt*fc_W_fiter)/(2*(float)M_PI*dt*fc_W_fiter+1);
+		// filter acceleration
+		a_f = alpha * a + (1-alpha) * a_f;
+		// filter W
+		W = (1-alpha)*W;
+		for (int i = 0; i < 3; i++) {
+			for (int j = 0; j < 2; j++) {
+				W(i, j) += alpha * prev_Phi_T(i, j);
 			}
-			if (theta_A(i) > max) {
-				theta_A(i) = max;
+			for (int j = 0; j < 5; j++) {
+				W(i, j+2) += alpha * prev_Phi_A(i, j);
 			}
 		}
-		for (int i=0; i < 2; i++) {
-			float min = theta_T0(i)/max_param_deviation;
-			float max = theta_T0(i)*max_param_deviation;
-			if (theta_T(i) < min) {
-				theta_T(i) = min;
-			}
-			if (theta_T(i) > max) {
-				theta_T(i) = max;
-			}
+		// update P, theta
+		Vector<float, 2+5> theta;
+		theta.set<2, 1>(theta_T, 0, 0);
+		theta.set<5, 1>(theta_A, 2, 0);
+		const Vector3f e_acc = W*theta - a_f;
+		const Vector<float, 2+5> theta_dot = -P*W.transpose()*e_acc;
+		theta_T += dt*theta_dot.slice<2, 1>(0, 0);
+		theta_A += dt*theta_dot.slice<5, 1>(2, 0);
+		float lambda0 = 0.1; // TODO parameter
+		// float k0 = 0.1; // TODO parameter
+		// float normP = ... TODO
+		// float lambda = lambda0 * (1 - normP/k0); // forgetting factor
+		float lambda = lambda0; // forgetting factor
+		P += dt*(-P*W.transpose()*W*P  + lambda * P);
+	}
+
+	// limit maximum deviation from initial value
+	const float max_param_deviation = _params_standard.theta_max_dev;
+	for (int i=0; i < 5; i++) {
+		float min = theta_A0(i)/max_param_deviation;
+		float max = theta_A0(i)*max_param_deviation;
+		if (theta_A(i) < min) {
+			theta_A(i) = min;
+		}
+		if (theta_A(i) > max) {
+			theta_A(i) = max;
 		}
 	}
+	for (int i=0; i < 2; i++) {
+		float min = theta_T0(i)/max_param_deviation;
+		float max = theta_T0(i)*max_param_deviation;
+		if (theta_T(i) < min) {
+			theta_T(i) = min;
+		}
+		if (theta_T(i) > max) {
+			theta_T(i) = max;
+		}
+	}
+
+
+
+	// Force allocation controller
 
 	// direction of reference body z axis represented in earth frame
 	const Vector3f body_z_sp(R_sp(0, 2), R_sp(1, 2), R_sp(2, 2));
@@ -650,6 +721,9 @@ void Standard::update_mc_state()
 	_v_att_sp->thrust_body[2] = fz_signal; // this is for multirotor thrust
 
 	_pusher_throttle = _pusher_throttle < 0.0f ? 0.0f : _pusher_throttle;
+
+
+
 
  	///////////////////////////// publish debug values /////////////////////////
 

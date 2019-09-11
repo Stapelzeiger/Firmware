@@ -126,6 +126,8 @@ private:
 	orb_advert_t _pub_dbg_val;
 	orb_advert_t _pub_dbg_vect;
 
+	int	_sensor_combined_sub{-1};
+
 	hrt_abstime prev_iteration_time{0};
 	matrix::Matrix<float, 3, 2> prev_Phi_T;
 	matrix::Matrix<float, 3, 5> prev_Phi_A;
@@ -135,6 +137,9 @@ private:
 	matrix::Vector<float, 5> theta_A0;
 	matrix::Vector<float, 5> Gamma_A_diag;
 	matrix::Vector<float, 2> Gamma_T_diag;
+	matrix::Matrix<float, 3, 7> W; // filtered [Phi_T Phi_A]
+	matrix::Matrix<float, 7, 7> P; // covariance  [CTx, CTz, CD0, CD1, CD2, CL0, CL1]
+	matrix::Vector<float, 3> a_f; // filtered acceleration
 	void parameters_update() override;
 };
 #endif
