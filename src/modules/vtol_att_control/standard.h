@@ -80,6 +80,8 @@ private:
 		float lambda_t;
 		float theta_max_dev;
 		float pusher_ramp_dt;
+		float acc_lp_fc;
+		float lambda_P;
 		float back_trans_ramp;
 		float down_pitch_max;
 		float forward_thrust_scale;
@@ -100,6 +102,8 @@ private:
 		param_t lambda_t;
 		param_t theta_max_dev;
 		param_t pusher_ramp_dt;
+		param_t acc_lp_fc;
+		param_t lambda_P;
 		param_t back_trans_ramp;
 		param_t down_pitch_max;
 		param_t forward_thrust_scale;

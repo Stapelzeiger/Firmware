@@ -83,6 +83,8 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	_params_handles_standard.lambda_a = param_find("VT_ADAPT_L_A");
 	_params_handles_standard.lambda_t = param_find("VT_ADAPT_L_T");
 	_params_handles_standard.theta_max_dev = param_find("VT_ADAPT_MAX_DEV");
+	_params_handles_standard.acc_lp_fc = param_find("VT_ADAPT_A_LP_FC");
+	_params_handles_standard.lambda_P = param_find("VT_ADAPT_L_P");
 	_params_handles_standard.pusher_ramp_dt = param_find("VT_PSHER_RMP_DT");
 	_params_handles_standard.back_trans_ramp = param_find("VT_B_TRANS_RAMP");
 	_params_handles_standard.down_pitch_max = param_find("VT_DWN_PITCH_MAX");
@@ -133,8 +135,6 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	P(4, 4) = _params_standard.gamma_cd2;
 	P(5, 5) = _params_standard.gamma_cl0;
 	P(6, 6) = _params_standard.gamma_cl1;
-
-	_sensor_combined_sub = orb_subscribe(ORB_ID(sensor_combined));
 }
 
 void
@@ -180,6 +180,12 @@ Standard::parameters_update()
 
 	param_get(_params_handles_standard.theta_max_dev, &v);
 	_params_standard.theta_max_dev = v;
+
+	param_get(_params_handles_standard.acc_lp_fc, &v);
+	_params_standard.acc_lp_fc = v;
+
+	param_get(_params_handles_standard.lambda_P, &v);
+	_params_standard.lambda_P = v;
 
 
 	/* duration of a forwards transition to fw mode */
@@ -560,19 +566,24 @@ void Standard::update_mc_state()
 	}
 
 	// Adapt thrust & aero model based on acceleration prediction error
+	if (_sensor_combined_sub == -1) {
+		_sensor_combined_sub = orb_subscribe(ORB_ID(sensor_combined));
+	}
 	bool acc_updated;
 	orb_check(_sensor_combined_sub, &acc_updated);
 	struct sensor_combined_s sensor_combined_msg;
 	if (acc_updated) {
 		orb_copy(ORB_ID(sensor_combined), _sensor_combined_sub, &sensor_combined_msg);
 	}
-	if (acc_updated && sensor_combined_msg.accelerometer_timestamp_relative != sensor_combined_s::RELATIVE_TIMESTAMP_INVALID) {
+	Vector3f e_acc;
+	if (_v_att_sp->vel_err_valid && // this is to stop adaptation from running on the ground (= not in position mode)
+		acc_updated && sensor_combined_msg.accelerometer_timestamp_relative != sensor_combined_s::RELATIVE_TIMESTAMP_INVALID) {
 		Vector3f a(sensor_combined_msg.accelerometer_m_s2[0],
 					sensor_combined_msg.accelerometer_m_s2[1],
 					sensor_combined_msg.accelerometer_m_s2[2]);
 		// https://en.wikipedia.org/wiki/Low-pass_filter#Simple_infinite_impulse_response_filter
 		// out = alpha * in + (1-alpha) * prev_out;
-		float fc_W_fiter = 10; // TODO parameter
+		float fc_W_fiter = _params_standard.acc_lp_fc;
 		float alpha = (2*(float)M_PI*dt*fc_W_fiter)/(2*(float)M_PI*dt*fc_W_fiter+1);
 		// filter acceleration
 		a_f = alpha * a + (1-alpha) * a_f;
@@ -590,15 +601,11 @@ void Standard::update_mc_state()
 		Vector<float, 2+5> theta;
 		theta.set<2, 1>(theta_T, 0, 0);
 		theta.set<5, 1>(theta_A, 2, 0);
-		const Vector3f e_acc = W*theta - a_f;
+		e_acc = W*theta - a_f;
 		const Vector<float, 2+5> theta_dot = -P*W.transpose()*e_acc;
 		theta_T += dt*theta_dot.slice<2, 1>(0, 0);
 		theta_A += dt*theta_dot.slice<5, 1>(2, 0);
-		float lambda0 = 0.1; // TODO parameter
-		// float k0 = 0.1; // TODO parameter
-		// float normP = ... TODO
-		// float lambda = lambda0 * (1 - normP/k0); // forgetting factor
-		float lambda = lambda0; // forgetting factor
+		float lambda = _params_standard.lambda_P; // forgetting factor
 		P += dt*(-P*W.transpose()*W*P  + lambda * P);
 	}
 
@@ -728,43 +735,187 @@ void Standard::update_mc_state()
  	///////////////////////////// publish debug values /////////////////////////
 
 	static int i = 0;
+	static int nb_elements = 1;
 	i++;
-	int i_mod = i%11;
+	int i_mod = i%nb_elements;
 	static struct debug_key_value_s dbg;
-	if (i_mod == 0) {
+	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_Fa_z", 10);
 		dbg.value = f_aero_b(2);
-	} else if (i_mod == 1) {
+	}
+	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_aoa", 10);
 		dbg.value = aoa*180/(float)M_PI;
-	} else if (i_mod == 2) {
+	}
+	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_Fa_x", 10);
 		dbg.value = f_aero_b(0);
-	} else if (i_mod == 3) {
+	}
+	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_CD0", 10);
 		dbg.value = theta_A(0);
-	} else if (i_mod == 4) {
+	}
+	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_CD1", 10);
 		dbg.value = theta_A(1);
-	} else if (i_mod == 5) {
+	}
+	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_CD2", 10);
 		dbg.value = theta_A(2);
-	} else if (i_mod == 6) {
+	}
+	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_CL0", 10);
 		dbg.value = theta_A(3);
-	} else if (i_mod == 7) {
+	}
+	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_CL1", 10);
 		dbg.value = theta_A(4);
-	} else if (i_mod == 8) {
+	}
+	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_CTx", 10);
 		dbg.value = theta_T(0);
-	} else if (i_mod == 9) {
+	}
+	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_CTz", 10);
 		dbg.value = theta_T(1);
-	} else if (i_mod == 10) {
-		strncpy(dbg.key, "xx_dt", 10);
-		dbg.value = dt;
 	}
+	// P matrix
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTxCTx", 10);
+		dbg.value = P(0,0);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCTz", 10);
+		dbg.value = P(1,1);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD0CD0", 10);
+		dbg.value = P(2,2);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD1CD1", 10);
+		dbg.value = P(3,3);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD2CD2", 10);
+		dbg.value = P(4,4);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CL0CL0", 10);
+		dbg.value = P(5,5);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CL1CL1", 10);
+		dbg.value = P(6,6);
+	}
+
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCTx", 10);
+		dbg.value = P(0,1);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCD0", 10);
+		dbg.value = P(0,2);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCD1", 10);
+		dbg.value = P(0,3);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCD2", 10);
+		dbg.value = P(0,4);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCL0", 10);
+		dbg.value = P(0,5);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTzCL1", 10);
+		dbg.value = P(0,6);
+	}
+
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTxCD0", 10);
+		dbg.value = P(1,2);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTxCD1", 10);
+		dbg.value = P(1,3);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTxCD2", 10);
+		dbg.value = P(1,4);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTxCL0", 10);
+		dbg.value = P(1,5);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CTxCL1", 10);
+		dbg.value = P(1,6);
+	}
+
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD0CD1", 10);
+		dbg.value = P(2,3);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD0CD2", 10);
+		dbg.value = P(2,4);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD0CL0", 10);
+		dbg.value = P(2,5);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD0CL1", 10);
+		dbg.value = P(2,6);
+	}
+
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD1CD2", 10);
+		dbg.value = P(3,4);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD1CL0", 10);
+		dbg.value = P(3,5);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD1CL1", 10);
+		dbg.value = P(3,6);
+	}
+
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD2CL0", 10);
+		dbg.value = P(4,5);
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CD2CL1", 10);
+		dbg.value = P(4,6);
+	}
+
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "P_CL0CL1", 10);
+		dbg.value = P(5,6);
+	}
+
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "xx_acc_up", 10);
+		dbg.value = acc_updated;
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "xx_acc_tx", 10);
+		dbg.value = sensor_combined_msg.accelerometer_timestamp_relative;
+	}
+	if (i_mod-- ==  0) {
+		strncpy(dbg.key, "xx_acc_fd", 10);
+		dbg.value = _sensor_combined_sub;
+	}
+
+	if (-i_mod > nb_elements) {
+		nb_elements = -i_mod;
+	}
+
 	orb_publish(ORB_ID(debug_key_value), _pub_dbg_val, &dbg);
 
 	static struct debug_vect_s dbg_vect;
@@ -785,15 +936,19 @@ void Standard::update_mc_state()
 		// dbg_vect.y = 0;
 		// dbg_vect.z = fz;
 		// strncpy(dbg_vect.name, "xx_f_th", 10);
-		dbg_vect.x = theta_T_err(0);
-		dbg_vect.y = theta_T_err(1);
-		dbg_vect.z = 0;
-		strncpy(dbg_vect.name, "xx_thT_e", 10);
+		dbg_vect.x = e_acc(0);
+		dbg_vect.y = e_acc(1);
+		dbg_vect.z = e_acc(2);
+		strncpy(dbg_vect.name, "xx_e_acc", 10);
 	} else if (j_mod == 2) {
-		dbg_vect.x = f_r(0);
-		dbg_vect.y = f_r(1);
-		dbg_vect.z = f_r(2);
-		strncpy(dbg_vect.name, "xx_f_r", 10);
+		// dbg_vect.x = f_r(0);
+		// dbg_vect.y = f_r(1);
+		// dbg_vect.z = f_r(2);
+		// strncpy(dbg_vect.name, "xx_f_r", 10);
+		dbg_vect.x = a_f(0);
+		dbg_vect.y = a_f(1);
+		dbg_vect.z = a_f(2);
+		strncpy(dbg_vect.name, "xx_a_f", 10);
 	}
 	orb_publish(ORB_ID(debug_vect), _pub_dbg_vect, &dbg_vect);
 }
