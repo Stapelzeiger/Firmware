@@ -810,128 +810,148 @@ void Standard::update_mc_state()
 	// 	dbg.value = P(1,1);
 	// }
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CD0CD0", 10);
+	// 	strncpy(dbg.key, "P_CTDzCTDz", 10);
 	// 	dbg.value = P(2,2);
 	// }
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CD1CD1", 10);
+	// 	strncpy(dbg.key, "P_CD0CD0", 10);
 	// 	dbg.value = P(3,3);
 	// }
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CD2CD2", 10);
+	// 	strncpy(dbg.key, "P_CD1CD1", 10);
 	// 	dbg.value = P(4,4);
 	// }
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CL0CL0", 10);
+	// 	strncpy(dbg.key, "P_CD2CD2", 10);
 	// 	dbg.value = P(5,5);
 	// }
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CL1CL1", 10);
+	// 	strncpy(dbg.key, "P_CL0CL0", 10);
 	// 	dbg.value = P(6,6);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CL1CL1", 10);
+	// 	dbg.value = P(7,7);
 	// }
 
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CTzCTx", 10);
+	// 	strncpy(dbg.key, "P_CTxCTz", 10);
 	// 	dbg.value = P(0,1);
 	// }
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CTzCD0", 10);
+	// 	strncpy(dbg.key, "P_CTxCTDz", 10);
 	// 	dbg.value = P(0,2);
 	// }
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CTzCD1", 10);
+	// 	strncpy(dbg.key, "P_CTxCD0", 10);
 	// 	dbg.value = P(0,3);
 	// }
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CTzCD2", 10);
+	// 	strncpy(dbg.key, "P_CTxCD1", 10);
 	// 	dbg.value = P(0,4);
 	// }
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CTzCL0", 10);
+	// 	strncpy(dbg.key, "P_CTxCD2", 10);
 	// 	dbg.value = P(0,5);
 	// }
 	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CTzCL1", 10);
-	// 	dbg.value = P(0,6);
-	// }
-
-	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CTxCD0", 10);
-	// 	dbg.value = P(1,2);
-	// }
-	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CTxCD1", 10);
-	// 	dbg.value = P(1,3);
-	// }
-	// if (i_mod-- ==  0) {
-	// 	strncpy(dbg.key, "P_CTxCD2", 10);
-	// 	dbg.value = P(1,4);
-	// }
-	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CTxCL0", 10);
-	// 	dbg.value = P(1,5);
+	// 	dbg.value = P(0,6);
 	// }
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CTxCL1", 10);
+	// 	dbg.value = P(0,7);
+	// }
+
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCTDz", 10);
+	// 	dbg.value = P(1,2);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCD0", 10);
+	// 	dbg.value = P(1,3);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCD1", 10);
+	// 	dbg.value = P(1,4);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCD2", 10);
+	// 	dbg.value = P(1,5);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCL0", 10);
 	// 	dbg.value = P(1,6);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCL1", 10);
+	// 	dbg.value = P(1,7);
+	// }
+
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTDzCD0", 10);
+	// 	dbg.value = P(2,3);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTDzCD1", 10);
+	// 	dbg.value = P(2,4);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTDzCD2", 10);
+	// 	dbg.value = P(2,5);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTDzCL0", 10);
+	// 	dbg.value = P(2,6);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTDzCL1", 10);
+	// 	dbg.value = P(2,7);
 	// }
 
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CD0CD1", 10);
-	// 	dbg.value = P(2,3);
+	// 	dbg.value = P(3,4);
 	// }
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CD0CD2", 10);
-	// 	dbg.value = P(2,4);
+	// 	dbg.value = P(3,5);
 	// }
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CD0CL0", 10);
-	// 	dbg.value = P(2,5);
+	// 	dbg.value = P(3,6);
 	// }
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CD0CL1", 10);
-	// 	dbg.value = P(2,6);
+	// 	dbg.value = P(3,7);
 	// }
 
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CD1CD2", 10);
-	// 	dbg.value = P(3,4);
+	// 	dbg.value = P(4,5);
 	// }
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CD1CL0", 10);
-	// 	dbg.value = P(3,5);
+	// 	dbg.value = P(4,6);
 	// }
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CD1CL1", 10);
-	// 	dbg.value = P(3,6);
+	// 	dbg.value = P(4,7);
 	// }
 
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CD2CL0", 10);
-	// 	dbg.value = P(4,5);
+	// 	dbg.value = P(5,6);
 	// }
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CD2CL1", 10);
-	// 	dbg.value = P(4,6);
+	// 	dbg.value = P(5,7);
 	// }
 
 	// if (i_mod-- ==  0) {
 	// 	strncpy(dbg.key, "P_CL0CL1", 10);
-	// 	dbg.value = P(5,6);
+	// 	dbg.value = P(6,7);
 	// }
-
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "xx_acc_up", 10);
-		dbg.value = acc_updated;
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "xx_acc_tx", 10);
-		dbg.value = sensor_combined_msg.accelerometer_timestamp_relative;
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "xx_acc_fd", 10);
-		dbg.value = _sensor_combined_sub;
-	}
 
 	if (-i_mod > nb_elements) {
 		nb_elements = -i_mod;
@@ -966,10 +986,14 @@ void Standard::update_mc_state()
 		// dbg_vect.y = f_r(1);
 		// dbg_vect.z = f_r(2);
 		// strncpy(dbg_vect.name, "xx_f_r", 10);
-		dbg_vect.x = a_f(0);
-		dbg_vect.y = a_f(1);
-		dbg_vect.z = a_f(2);
-		strncpy(dbg_vect.name, "xx_a_f", 10);
+		// dbg_vect.x = a_f(0);
+		// dbg_vect.y = a_f(1);
+		// dbg_vect.z = a_f(2);
+		// strncpy(dbg_vect.name, "xx_a_f", 10);
+		dbg_vect.x = _airspeed->airspeed_body_x;
+		dbg_vect.y = _airspeed->airspeed_body_y;
+		dbg_vect.z = _airspeed->airspeed_body_z;
+		strncpy(dbg_vect.name, "xx_wind_b", 10);
 	}
 	orb_publish(ORB_ID(debug_vect), _pub_dbg_vect, &dbg_vect);
 }
