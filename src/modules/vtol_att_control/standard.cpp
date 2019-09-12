@@ -80,6 +80,7 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	_params_handles_standard.gamma_cl1 = param_find("VT_ADAPT_G_CL1");
 	_params_handles_standard.gamma_ctx = param_find("VT_ADAPT_G_CTX");
 	_params_handles_standard.gamma_ctz = param_find("VT_ADAPT_G_CTZ");
+	_params_handles_standard.gamma_ctdz = param_find("VT_ADAPT_G_CTDZ");
 	_params_handles_standard.lambda_a = param_find("VT_ADAPT_L_A");
 	_params_handles_standard.lambda_t = param_find("VT_ADAPT_L_T");
 	_params_handles_standard.theta_max_dev = param_find("VT_ADAPT_MAX_DEV");
@@ -117,6 +118,7 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	float fw_th_scale = 2.0f;
 	theta_T0(0) = (m*g)/(hover_th*hover_th * fw_th_scale*fw_th_scale); // CTx
 	theta_T0(1) = (m*g)/(hover_th*hover_th); // CTz
+	theta_T0(2) = 0.068f*2; // CTDz
 	theta_T = theta_T0;
 	theta_A0(0) = 0.1543f; // CD0
 	theta_A0(1) = 0.178f; // CD1
@@ -130,11 +132,12 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	P.setZero();
 	P(0, 0) = _params_standard.gamma_ctx;
 	P(1, 1) = _params_standard.gamma_ctz;
-	P(2, 2) = _params_standard.gamma_cd0;
-	P(3, 3) = _params_standard.gamma_cd1;
-	P(4, 4) = _params_standard.gamma_cd2;
-	P(5, 5) = _params_standard.gamma_cl0;
-	P(6, 6) = _params_standard.gamma_cl1;
+	P(2, 2) = _params_standard.gamma_ctdz;
+	P(3, 3) = _params_standard.gamma_cd0;
+	P(4, 4) = _params_standard.gamma_cd1;
+	P(5, 5) = _params_standard.gamma_cd2;
+	P(6, 6) = _params_standard.gamma_cl0;
+	P(7, 7) = _params_standard.gamma_cl1;
 }
 
 void
@@ -171,6 +174,9 @@ Standard::parameters_update()
 	_params_standard.gamma_ctz = v;
 	Gamma_T_diag(1) = _params_standard.gamma_ctz;
 
+	param_get(_params_handles_standard.gamma_ctdz, &v);
+	_params_standard.gamma_ctdz = v;
+	Gamma_T_diag(3) = _params_standard.gamma_ctdz;
 
 	param_get(_params_handles_standard.lambda_a, &v);
 	_params_standard.lambda_a = v;
@@ -463,12 +469,20 @@ static void build_aero_model_phi(float alpha, float v, Matrix<float, 3, 5> &phi)
 	phi = 0.5f*rho*v*v*Sref/m * phi;
 }
 
-static void build_thrust_model_phi(float th_signal_x_sq, float th_signal_z_sq, Matrix<float, 3, 2> &phi)
+static void build_thrust_model_phi(float th_signal_x_sq, float th_signal_z_sq, Vector3f v, float alpha, Matrix<float, 3, 3> &phi)
 {
-	// parameters theta_t: [CTx, CTz]
+	// parameters theta_t: [CTx, CTz, CTDz]
 	phi.setZero();
 	phi(0,0) = th_signal_x_sq / m;
 	phi(2,1) = -th_signal_z_sq / m;
+	// float v_xy_norm = sqrtf(v(0)*v(0) + v(1)*v(1)) + 0.001f;
+	(void)v;
+	(void)alpha;
+	// const float pi_half_sq = (M_PI/2)*(M_PI/2);
+	// float alpha_flipped = -alpha;
+	// float fs = 0; //powf(fabsf(th_signal_z_sq), 0.7075f) * powf(v.norm(), 0.585f) * (alpha_flipped*alpha_flipped - pi_half_sq) * (alpha_flipped - 3.126f);
+	// phi(0,2) = - v(0)/v_xy_norm * fs;
+	// phi(1,2) = - v(1)/v_xy_norm * fs;
 }
 
 static float sqrtf_signed(float in)
@@ -554,15 +568,15 @@ void Standard::update_mc_state()
 	// Adapt thrust & aero model based on velocity error
 	const Vector3f v_err(_v_att_sp->vel_err_x, _v_att_sp->vel_err_y, _v_att_sp->vel_err_z);
 	const Vector<float, 5> theta_A_err = prev_Phi_A.transpose()*R.transpose()*v_err;
-	const Vector<float, 2> theta_T_err = prev_Phi_T.transpose()*R.transpose()*v_err;
+	const Vector<float, 3> theta_T_err = prev_Phi_T.transpose()*R.transpose()*v_err;
 	if (_v_att_sp->vel_err_valid) {
 		const float lambda_A = _params_standard.lambda_a;
 		const float lambda_T = _params_standard.lambda_t;
 
 		// theta_A += dt * (Gamma_A_diag.emult(theta_A_err) - lambda_A*(theta_A - theta_A0));
 		// theta_T += dt * (Gamma_T_diag.emult(theta_T_err) - lambda_T*(theta_T - theta_T0));
-		theta_A += dt * (P.slice<5, 5>(2, 2)*theta_A_err - lambda_A*(theta_A - theta_A0));
-		theta_T += dt * (P.slice<2, 2>(0, 0)*theta_T_err - lambda_T*(theta_T - theta_T0));
+		theta_A += dt * (P.slice<5, 5>(3, 3)*theta_A_err - lambda_A*(theta_A - theta_A0));
+		theta_T += dt * (P.slice<3, 3>(0, 0)*theta_T_err - lambda_T*(theta_T - theta_T0));
 	}
 
 	// Adapt thrust & aero model based on acceleration prediction error
@@ -590,21 +604,21 @@ void Standard::update_mc_state()
 		// filter W
 		W = (1-alpha)*W;
 		for (int i = 0; i < 3; i++) {
-			for (int j = 0; j < 2; j++) {
+			for (int j = 0; j < 3; j++) {
 				W(i, j) += alpha * prev_Phi_T(i, j);
 			}
 			for (int j = 0; j < 5; j++) {
-				W(i, j+2) += alpha * prev_Phi_A(i, j);
+				W(i, j+3) += alpha * prev_Phi_A(i, j);
 			}
 		}
 		// update P, theta
-		Vector<float, 2+5> theta;
-		theta.set<2, 1>(theta_T, 0, 0);
-		theta.set<5, 1>(theta_A, 2, 0);
+		Vector<float, 3+5> theta;
+		theta.set<3, 1>(theta_T, 0, 0);
+		theta.set<5, 1>(theta_A, 3, 0);
 		e_acc = W*theta - a_f;
-		const Vector<float, 2+5> theta_dot = -P*W.transpose()*e_acc;
-		theta_T += dt*theta_dot.slice<2, 1>(0, 0);
-		theta_A += dt*theta_dot.slice<5, 1>(2, 0);
+		const Vector<float, 3+5> theta_dot = -P*W.transpose()*e_acc;
+		theta_T += dt*theta_dot.slice<3, 1>(0, 0);
+		theta_A += dt*theta_dot.slice<5, 1>(3, 0);
 		float lambda = _params_standard.lambda_P; // forgetting factor
 		P += dt*(-P*W.transpose()*W*P  + lambda * P);
 	}
@@ -621,7 +635,7 @@ void Standard::update_mc_state()
 			theta_A(i) = max;
 		}
 	}
-	for (int i=0; i < 2; i++) {
+	for (int i=0; i < 3; i++) {
 		float min = theta_T0(i)/max_param_deviation;
 		float max = theta_T0(i)*max_param_deviation;
 		if (theta_T(i) < min) {
@@ -701,24 +715,29 @@ void Standard::update_mc_state()
 	const Vector3f f_th = f_r - f_aero;
 	// thruster force in body z (negative)
 	float fz = z_body_in_earth * f_th;
-	// thruster force in body x (positive)
-	float fx = x_body_in_earth * f_th;
 
 	// u^2 * CT = f
 	float CTx = theta_T(0);
 	float CTz = theta_T(1);
 	float fz_signal_sq = fz / CTz; // this is negative
-	float fx_signal_sq = fx / CTx;
 	if (-fz_signal_sq < sq(0.10f)) {
 		fz_signal_sq = 0;
 	}
+
+	build_thrust_model_phi(0, -fz_signal_sq, airspeed_body_frame, aoa, prev_Phi_T);
+	const Vector3f f_th_drag_compensated = f_th - R*(m*prev_Phi_T*theta_T);
+
+	// thruster force in body x (positive)
+	float fx = x_body_in_earth * f_th_drag_compensated;
+	float fx_signal_sq = fx / CTx;
 	if (fx_signal_sq < sq(0.10f)) {
 		fx_signal_sq = 0;
 	}
+	build_thrust_model_phi(fx_signal_sq, -fz_signal_sq, airspeed_body_frame, aoa, prev_Phi_T);
+
 	float fz_signal = sqrtf_signed(fz_signal_sq);
 	float fx_signal = sqrtf_signed(fx_signal_sq);
 
-	build_thrust_model_phi(fx_signal_sq, -fz_signal_sq, prev_Phi_T);
 
 	_pusher_throttle = fx_signal;
 	att_sp.copyTo(_v_att_sp->q_d);
@@ -779,125 +798,129 @@ void Standard::update_mc_state()
 		strncpy(dbg.key, "xx_CTz", 10);
 		dbg.value = theta_T(1);
 	}
-	// P matrix
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTxCTx", 10);
-		dbg.value = P(0,0);
+	if (i_mod-- == 0) {
+		strncpy(dbg.key, "xx_CTDz", 10);
+		dbg.value = theta_T(2);
 	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCTz", 10);
-		dbg.value = P(1,1);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD0CD0", 10);
-		dbg.value = P(2,2);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD1CD1", 10);
-		dbg.value = P(3,3);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD2CD2", 10);
-		dbg.value = P(4,4);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CL0CL0", 10);
-		dbg.value = P(5,5);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CL1CL1", 10);
-		dbg.value = P(6,6);
-	}
+	// // P matrix
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTxCTx", 10);
+	// 	dbg.value = P(0,0);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCTz", 10);
+	// 	dbg.value = P(1,1);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD0CD0", 10);
+	// 	dbg.value = P(2,2);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD1CD1", 10);
+	// 	dbg.value = P(3,3);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD2CD2", 10);
+	// 	dbg.value = P(4,4);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CL0CL0", 10);
+	// 	dbg.value = P(5,5);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CL1CL1", 10);
+	// 	dbg.value = P(6,6);
+	// }
 
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCTx", 10);
-		dbg.value = P(0,1);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCD0", 10);
-		dbg.value = P(0,2);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCD1", 10);
-		dbg.value = P(0,3);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCD2", 10);
-		dbg.value = P(0,4);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCL0", 10);
-		dbg.value = P(0,5);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTzCL1", 10);
-		dbg.value = P(0,6);
-	}
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCTx", 10);
+	// 	dbg.value = P(0,1);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCD0", 10);
+	// 	dbg.value = P(0,2);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCD1", 10);
+	// 	dbg.value = P(0,3);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCD2", 10);
+	// 	dbg.value = P(0,4);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCL0", 10);
+	// 	dbg.value = P(0,5);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTzCL1", 10);
+	// 	dbg.value = P(0,6);
+	// }
 
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTxCD0", 10);
-		dbg.value = P(1,2);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTxCD1", 10);
-		dbg.value = P(1,3);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTxCD2", 10);
-		dbg.value = P(1,4);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTxCL0", 10);
-		dbg.value = P(1,5);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CTxCL1", 10);
-		dbg.value = P(1,6);
-	}
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTxCD0", 10);
+	// 	dbg.value = P(1,2);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTxCD1", 10);
+	// 	dbg.value = P(1,3);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTxCD2", 10);
+	// 	dbg.value = P(1,4);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTxCL0", 10);
+	// 	dbg.value = P(1,5);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CTxCL1", 10);
+	// 	dbg.value = P(1,6);
+	// }
 
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD0CD1", 10);
-		dbg.value = P(2,3);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD0CD2", 10);
-		dbg.value = P(2,4);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD0CL0", 10);
-		dbg.value = P(2,5);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD0CL1", 10);
-		dbg.value = P(2,6);
-	}
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD0CD1", 10);
+	// 	dbg.value = P(2,3);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD0CD2", 10);
+	// 	dbg.value = P(2,4);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD0CL0", 10);
+	// 	dbg.value = P(2,5);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD0CL1", 10);
+	// 	dbg.value = P(2,6);
+	// }
 
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD1CD2", 10);
-		dbg.value = P(3,4);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD1CL0", 10);
-		dbg.value = P(3,5);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD1CL1", 10);
-		dbg.value = P(3,6);
-	}
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD1CD2", 10);
+	// 	dbg.value = P(3,4);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD1CL0", 10);
+	// 	dbg.value = P(3,5);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD1CL1", 10);
+	// 	dbg.value = P(3,6);
+	// }
 
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD2CL0", 10);
-		dbg.value = P(4,5);
-	}
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CD2CL1", 10);
-		dbg.value = P(4,6);
-	}
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD2CL0", 10);
+	// 	dbg.value = P(4,5);
+	// }
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CD2CL1", 10);
+	// 	dbg.value = P(4,6);
+	// }
 
-	if (i_mod-- ==  0) {
-		strncpy(dbg.key, "P_CL0CL1", 10);
-		dbg.value = P(5,6);
-	}
+	// if (i_mod-- ==  0) {
+	// 	strncpy(dbg.key, "P_CL0CL1", 10);
+	// 	dbg.value = P(5,6);
+	// }
 
 	if (i_mod-- ==  0) {
 		strncpy(dbg.key, "xx_acc_up", 10);

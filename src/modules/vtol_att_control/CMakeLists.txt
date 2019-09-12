@@ -33,7 +33,7 @@
 px4_add_module(
 	MODULE modules__vtol_att_control
 	MAIN vtol_att_control
-	STACK_MAIN 2300
+	STACK_MAIN 3300
 	COMPILE_FLAGS
 	SRCS
 		vtol_att_control_main.cpp
