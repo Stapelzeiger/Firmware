@@ -176,7 +176,7 @@ Standard::parameters_update()
 
 	param_get(_params_handles_standard.gamma_ctdz, &v);
 	_params_standard.gamma_ctdz = v;
-	Gamma_T_diag(3) = _params_standard.gamma_ctdz;
+	Gamma_T_diag(2) = _params_standard.gamma_ctdz;
 
 	param_get(_params_handles_standard.lambda_a, &v);
 	_params_standard.lambda_a = v;
@@ -475,14 +475,12 @@ static void build_thrust_model_phi(float th_signal_x_sq, float th_signal_z_sq, V
 	phi.setZero();
 	phi(0,0) = th_signal_x_sq / m;
 	phi(2,1) = -th_signal_z_sq / m;
-	// float v_xy_norm = sqrtf(v(0)*v(0) + v(1)*v(1)) + 0.001f;
-	(void)v;
-	(void)alpha;
-	// const float pi_half_sq = (M_PI/2)*(M_PI/2);
-	// float alpha_flipped = -alpha;
-	// float fs = 0; //powf(fabsf(th_signal_z_sq), 0.7075f) * powf(v.norm(), 0.585f) * (alpha_flipped*alpha_flipped - pi_half_sq) * (alpha_flipped - 3.126f);
-	// phi(0,2) = - v(0)/v_xy_norm * fs;
-	// phi(1,2) = - v(1)/v_xy_norm * fs;
+	float v_xy_norm = sqrtf(v(0)*v(0) + v(1)*v(1)) + 0.001f;
+	const float pi_half_sq = (M_PI/2)*(M_PI/2);
+	float alpha_flipped = -alpha;
+	float fs = powf(fabsf(th_signal_z_sq), 0.7075f) * powf(v.norm(), 0.585f) * (alpha_flipped*alpha_flipped - pi_half_sq) * (alpha_flipped - 3.126f);
+	phi(0,2) = - v(0)/v_xy_norm * fs;
+	phi(1,2) = - v(1)/v_xy_norm * fs;
 }
 
 static float sqrtf_signed(float in)
