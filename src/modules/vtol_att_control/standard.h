@@ -76,8 +76,7 @@ private:
 		float gamma_cl1;
 		float gamma_ctx;
 		float gamma_ctz;
-		float lambda_a;
-		float lambda_t;
+		float lambda;
 		float theta_max_dev;
 		float pusher_ramp_dt;
 		float acc_lp_fc;
@@ -98,8 +97,7 @@ private:
 		param_t gamma_cl1;
 		param_t gamma_ctx;
 		param_t gamma_ctz;
-		param_t lambda_a;
-		param_t lambda_t;
+		param_t lambda;
 		param_t theta_max_dev;
 		param_t pusher_ramp_dt;
 		param_t acc_lp_fc;
@@ -133,14 +131,10 @@ private:
 	int	_sensor_combined_sub{-1};
 
 	hrt_abstime prev_iteration_time{0};
-	matrix::Matrix<float, 3, 2> prev_Phi_T;
-	matrix::Matrix<float, 3, 5> prev_Phi_A;
-	matrix::Vector<float, 2> theta_T; // [CTx, CTz]
-	matrix::Vector<float, 2> theta_T0;
-	matrix::Vector<float, 5> theta_A; // [CD0, CD1, CD2, CL0, CL1]
-	matrix::Vector<float, 5> theta_A0;
-	matrix::Vector<float, 5> Gamma_A_diag;
-	matrix::Vector<float, 2> Gamma_T_diag;
+	matrix::Matrix<float, 3, 7> prev_Phi;
+	matrix::Vector<float, 7> theta; // [CTx, CTz, CD0, CD1, CD2, CL0, CL1]
+	matrix::Vector<float, 7> theta0;
+	matrix::Vector<float, 7> Gamma_diag;
 	matrix::Matrix<float, 3, 7> W; // filtered [Phi_T Phi_A]
 	matrix::Matrix<float, 7, 7> P; // covariance  [CTx, CTz, CD0, CD1, CD2, CL0, CL1]
 	matrix::Vector<float, 3> a_f; // filtered acceleration
