@@ -562,7 +562,18 @@ static Quatf slerp(const Quatf &q0, const Quatf &q1, float t)
   	return scale0 * q0 + scale1 * q1;
 }
 
-
+static float limit(float val, float c, float k)
+{
+	float min = c/k;
+	float max = c*k;
+	if (val > max) {
+		return max;
+	}
+	if (val < min) {
+		return min;
+	}
+	return val;
+}
 
 
 void Standard::update_mc_state()
@@ -606,6 +617,12 @@ void Standard::update_mc_state()
 		if (adaptation_running == false) {
 			adaptation_running = true;
 			// reset P, theta
+			prev_Phi_T.setZero();
+			prev_Phi_A.setZero();
+			Gamma_A_diag.setZero();
+			Gamma_T_diag.setZero();
+			W.setZero();
+			a_f.setZero();
 			P.setZero();
 			P(0, 0) = _params_standard.gamma_ctx;
 			P(1, 1) = _params_standard.gamma_ctz;
@@ -680,28 +697,36 @@ void Standard::update_mc_state()
 	}
 
 	// limit maximum deviation from initial value
-	const float max_param_deviation = _params_standard.theta_max_dev;
-	for (int i=0; i < 5; i++) {
-		float min = theta_A0(i)/max_param_deviation;
-		float max = theta_A0(i)*max_param_deviation;
-		if (theta_A(i) < min) {
-			theta_A(i) = min;
-		}
-		if (theta_A(i) > max) {
-			theta_A(i) = max;
-		}
-	}
-	for (int i=0; i < 3; i++) {
-		float min = theta_T0(i)/max_param_deviation;
-		float max = theta_T0(i)*max_param_deviation;
-		if (theta_T(i) < min) {
-			theta_T(i) = min;
-		}
-		if (theta_T(i) > max) {
-			theta_T(i) = max;
-		}
-	}
+	// const float max_param_deviation = _params_standard.theta_max_dev;
+	// for (int i=0; i < 5; i++) {
+	// 	float min = theta_A0(i)/max_param_deviation;
+	// 	float max = theta_A0(i)*max_param_deviation;
+	// 	if (theta_A(i) < min) {
+	// 		theta_A(i) = min;
+	// 	}
+	// 	if (theta_A(i) > max) {
+	// 		theta_A(i) = max;
+	// 	}
+	// }
+	// for (int i=0; i < 3; i++) {
+	// 	float min = theta_T0(i)/max_param_deviation;
+	// 	float max = theta_T0(i)*max_param_deviation;
+	// 	if (theta_T(i) < min) {
+	// 		theta_T(i) = min;
+	// 	}
+	// 	if (theta_T(i) > max) {
+	// 		theta_T(i) = max;
+	// 	}
+	// }
 
+	limit(theta_A(0), theta_A0(0), 4); // CD0
+	limit(theta_A(1), theta_A0(1), 4); // CD1
+	limit(theta_A(2), theta_A0(2), 2); // CD2
+	limit(theta_A(3), theta_A0(3), 4); // CL0
+	limit(theta_A(4), theta_A0(4), 2); // CL1
+	limit(theta_T(0), theta_T0(0), 2); // CTx
+	limit(theta_T(1), theta_T0(1), 2); // CTz
+	limit(theta_T(2), theta_T0(2), 4); // CTDz
 
 
 	// Force allocation controller
