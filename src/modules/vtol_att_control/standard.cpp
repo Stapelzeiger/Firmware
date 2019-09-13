@@ -83,6 +83,14 @@ Standard::Standard(VtolAttitudeControl *attc) :
 	_params_handles_standard.gamma_ctdz = param_find("VT_ADAPT_G_CTDZ");
 	_params_handles_standard.lambda_a = param_find("VT_ADAPT_L_A");
 	_params_handles_standard.lambda_t = param_find("VT_ADAPT_L_T");
+	_params_handles_standard.reset_cd0 = param_find("VT_RESET_CD0");
+	_params_handles_standard.reset_cd1 = param_find("VT_RESET_CD1");
+	_params_handles_standard.reset_cd2 = param_find("VT_RESET_CD2");
+	_params_handles_standard.reset_cl0 = param_find("VT_RESET_CL0");
+	_params_handles_standard.reset_cl1 = param_find("VT_RESET_CL1");
+	_params_handles_standard.reset_ctx = param_find("VT_RESET_CTX");
+	_params_handles_standard.reset_ctz = param_find("VT_RESET_CTZ");
+	_params_handles_standard.reset_ctdz = param_find("VT_RESET_CTDZ");
 	_params_handles_standard.theta_max_dev = param_find("VT_ADAPT_MAX_DEV");
 	_params_handles_standard.acc_lp_fc = param_find("VT_ADAPT_A_LP_FC");
 	_params_handles_standard.lambda_P = param_find("VT_ADAPT_L_P");
@@ -192,6 +200,32 @@ Standard::parameters_update()
 
 	param_get(_params_handles_standard.lambda_P, &v);
 	_params_standard.lambda_P = v;
+
+
+	param_get(_params_handles_standard.reset_cd0, &v);
+	_params_standard.reset_cd0 = v;
+
+	param_get(_params_handles_standard.reset_cd1, &v);
+	_params_standard.reset_cd1 = v;
+
+	param_get(_params_handles_standard.reset_cd2, &v);
+	_params_standard.reset_cd2 = v;
+
+	param_get(_params_handles_standard.reset_cl0, &v);
+	_params_standard.reset_cl0 = v;
+
+	param_get(_params_handles_standard.reset_cl1, &v);
+	_params_standard.reset_cl1 = v;
+
+	param_get(_params_handles_standard.reset_ctx, &v);
+	_params_standard.reset_ctx = v;
+
+	param_get(_params_handles_standard.reset_ctz, &v);
+	_params_standard.reset_ctz = v;
+
+	param_get(_params_handles_standard.reset_ctdz, &v);
+	_params_standard.reset_ctdz = v;
+
 
 
 	/* duration of a forwards transition to fw mode */
@@ -567,7 +601,29 @@ void Standard::update_mc_state()
 	const Vector3f v_err(_v_att_sp->vel_err_x, _v_att_sp->vel_err_y, _v_att_sp->vel_err_z);
 	const Vector<float, 5> theta_A_err = prev_Phi_A.transpose()*R.transpose()*v_err;
 	const Vector<float, 3> theta_T_err = prev_Phi_T.transpose()*R.transpose()*v_err;
+	static bool adaptation_running = false;
 	if (_v_att_sp->vel_err_valid) {
+		if (adaptation_running == false) {
+			adaptation_running = true;
+			// reset P, theta
+			P.setZero();
+			P(0, 0) = _params_standard.gamma_ctx;
+			P(1, 1) = _params_standard.gamma_ctz;
+			P(2, 2) = _params_standard.gamma_ctdz;
+			P(3, 3) = _params_standard.gamma_cd0;
+			P(4, 4) = _params_standard.gamma_cd1;
+			P(5, 5) = _params_standard.gamma_cd2;
+			P(6, 6) = _params_standard.gamma_cl0;
+			P(7, 7) = _params_standard.gamma_cl1;
+			theta_A(0) = _params_standard.reset_cd0;
+			theta_A(1) = _params_standard.reset_cd1;
+			theta_A(2) = _params_standard.reset_cd2;
+			theta_A(3) = _params_standard.reset_cl0;
+			theta_A(4) = _params_standard.reset_cl1;
+			theta_T(0) = _params_standard.reset_ctx;
+			theta_T(1) = _params_standard.reset_ctz;
+			theta_T(2) = _params_standard.reset_ctdz;
+		}
 		const float lambda_A = _params_standard.lambda_a;
 		const float lambda_T = _params_standard.lambda_t;
 
@@ -575,6 +631,8 @@ void Standard::update_mc_state()
 		// theta_T += dt * (Gamma_T_diag.emult(theta_T_err) - lambda_T*(theta_T - theta_T0));
 		theta_A += dt * (P.slice<5, 5>(3, 3)*theta_A_err - lambda_A*(theta_A - theta_A0));
 		theta_T += dt * (P.slice<3, 3>(0, 0)*theta_T_err - lambda_T*(theta_T - theta_T0));
+	} else {
+		adaptation_running = false;
 	}
 
 	// Adapt thrust & aero model based on acceleration prediction error
