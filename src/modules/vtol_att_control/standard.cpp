@@ -719,14 +719,14 @@ void Standard::update_mc_state()
 	// 	}
 	// }
 
-	limit(theta_A(0), theta_A0(0), 4); // CD0
-	limit(theta_A(1), theta_A0(1), 4); // CD1
-	limit(theta_A(2), theta_A0(2), 2); // CD2
-	limit(theta_A(3), theta_A0(3), 4); // CL0
-	limit(theta_A(4), theta_A0(4), 2); // CL1
-	limit(theta_T(0), theta_T0(0), 2); // CTx
-	limit(theta_T(1), theta_T0(1), 2); // CTz
-	limit(theta_T(2), theta_T0(2), 4); // CTDz
+	theta_A(0) = limit(theta_A(0), theta_A0(0), 4); // CD0
+	theta_A(1) = limit(theta_A(1), theta_A0(1), 4); // CD1
+	theta_A(2) = limit(theta_A(2), theta_A0(2), 2); // CD2
+	theta_A(3) = limit(theta_A(3), theta_A0(3), 4); // CL0
+	theta_A(4) = limit(theta_A(4), theta_A0(4), 2); // CL1
+	theta_T(0) = limit(theta_T(0), theta_T0(0), 2); // CTx
+	theta_T(1) = limit(theta_T(1), theta_T0(1), 2); // CTz
+	theta_T(2) = limit(theta_T(2), theta_T0(2), 4); // CTDz
 
 
 	// Force allocation controller

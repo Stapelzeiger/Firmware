@@ -1,4 +1,15 @@
 import numpy.random
+keys = [
+"VT_RESET_CD0",
+"VT_RESET_CD1",
+"VT_RESET_CD2",
+"VT_RESET_CL0",
+"VT_RESET_CL1",
+"VT_RESET_CTDZ",
+"VT_RESET_CTX",
+"VT_RESET_CTZ",
+]
+
 th0 = {
 "VT_RESET_CD0": 0.1543,
 "VT_RESET_CD1": 0.178,
@@ -22,5 +33,6 @@ s = {
 }
 
 
-for k,v in th0.items():
+for k in keys:
+    v = th0[k]
     print(k, numpy.random.uniform(v/s[k], v*s[k]))
