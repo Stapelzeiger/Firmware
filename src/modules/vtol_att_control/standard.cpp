@@ -469,9 +469,27 @@ static float force_allocation_compute_desired_alpha(float v, float alpha_max, fl
 	const float q_Sref = 0.5f*rho*v*v*Sref;
 	const float zero_aoa_lift = q_Sref * CL0;
 	const float lift_slope = q_Sref * CLalpha;
+	if (v < 1.0f) { // very low speed, avoid dividing by zero lift_slope
+		return 0;
+	}
 	float alpha = (lift - zero_aoa_lift)/lift_slope;
-	if (alpha > alpha_max) {
-		alpha = alpha_max;
+
+
+	float delta_lift = 0.2f*m*g; // [N] minimum lift to be compensated by thrusters
+	static bool prev_above_alpha_max = false; // hysteresis around alpha max condition
+	float hysteresis_alpha = 0;
+	if (prev_above_alpha_max) {
+		hysteresis_alpha = 0.5f*delta_lift/lift_slope;
+	}
+	if (alpha > alpha_max - hysteresis_alpha) {
+		prev_above_alpha_max = true;
+		// alpha = alpha_max - delta_lift/lift_slope;
+		alpha = alpha - delta_lift/lift_slope; // reduce by delta_lift to ensure thrusters have a minimum thrust
+		if (alpha > alpha_max) {
+			alpha = alpha_max;
+		}
+	} else {
+		prev_above_alpha_max = false;
 	}
 	return alpha;
 }
@@ -692,8 +710,8 @@ void Standard::update_mc_state()
 		const Vector<float, 3+5> theta_dot = -P*W.transpose()*e_acc;
 		theta_T += dt*theta_dot.slice<3, 1>(0, 0);
 		theta_A += dt*theta_dot.slice<5, 1>(3, 0);
-		float lambda = _params_standard.lambda_P; // forgetting factor
-		P += dt*(-P*W.transpose()*W*P  + lambda * P);
+		// float lambda = _params_standard.lambda_P; // forgetting factor
+		// P += dt*(-P*W.transpose()*W*P  + lambda * P);
 	}
 
 	// limit maximum deviation from initial value
@@ -839,17 +857,29 @@ void Standard::update_mc_state()
 	i++;
 	int i_mod = i%nb_elements;
 	static struct debug_key_value_s dbg;
-	if (i_mod-- == 0) {
-		strncpy(dbg.key, "xx_Fa_z", 10);
-		dbg.value = f_aero_b(2);
-	}
+	// if (i_mod-- == 0) {
+	// 	strncpy(dbg.key, "xx_Fa_z", 10);
+	// 	dbg.value = f_aero_b(2);
+	// }
+	// if (i_mod-- == 0) {
+	// 	strncpy(dbg.key, "xx_Fa_x", 10);
+	// 	dbg.value = f_aero_b(0);
+	// }
 	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_aoa", 10);
 		dbg.value = aoa*180/(float)M_PI;
 	}
 	if (i_mod-- == 0) {
-		strncpy(dbg.key, "xx_Fa_x", 10);
-		dbg.value = f_aero_b(0);
+		strncpy(dbg.key, "xx_alphad", 10);
+		dbg.value = alpha_d*180/(float)M_PI;
+	}
+	if (i_mod-- == 0) {
+		strncpy(dbg.key, "xx_u2thz", 10);
+		dbg.value = fz_signal_sq;
+	}
+	if (i_mod-- == 0) {
+		strncpy(dbg.key, "xx_u2thx", 10);
+		dbg.value = fx_signal_sq;
 	}
 	if (i_mod-- == 0) {
 		strncpy(dbg.key, "xx_CD0", 10);
